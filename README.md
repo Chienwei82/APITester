@@ -1,5 +1,9 @@
 # APITester
 
+[![.NET CI](https://github.com/Chienwei82/APITester/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Chienwei82/APITester/actions/workflows/dotnet.yml)
+[![Release](https://github.com/Chienwei82/APITester/actions/workflows/release.yml/badge.svg)](https://github.com/Chienwei82/APITester/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Herramienta portable de linea de comandos para ejecutar requests HTTP contra APIs REST y guardar las respuestas en un archivo JSON.
 
 Lee una configuracion en JSON (uno o varios requests), los ejecuta en paralelo con un limite de concurrencia, y produce un archivo con el detalle de cada respuesta: status code, headers, body, tiempo de respuesta, tamano, y headers enviados en el request.

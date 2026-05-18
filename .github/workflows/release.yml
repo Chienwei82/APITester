@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+      - name: Publish Linux x64
+        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/linux-x64
+
+      - name: Publish Windows x64
+        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/win-x64
+
+      - name: Publish macOS x64
+        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r osx-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/osx-x64
+
+      - name: Package binaries
+        run: |
+          cd publish
+          zip -r ../APITester-linux-x64.zip linux-x64/
+          zip -r ../APITester-win-x64.zip win-x64/
+          zip -r ../APITester-osx-x64.zip osx-x64/
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            APITester-linux-x64.zip
+            APITester-win-x64.zip
+            APITester-osx-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: APITester-release-binaries
+          path: |
+            APITester-linux-x64.zip
+            APITester-win-x64.zip
+            APITester-osx-x64.zip
