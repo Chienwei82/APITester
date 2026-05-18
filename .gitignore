@@ -1,0 +1,44 @@
+## Build output
+bin/
+obj/
+out/
+
+## VS / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+
+## NuGet
+*.nupkg
+packages/
+project.lock.json
+
+## Rider / JetBrains
+.idea/
+*.iml
+
+## Test / coverage
+TestResults/
+coverage/
+*.trx
+
+## OS files
+.DS_Store
+Thumbs.db
+
+## Temporary
+*.tmp
+*.temp
+*.log
+
+## Secrets / env
+.env
+.env.local
+*.pfx
+*.key
+secrets.json
+
+## Misc
+node_modules/
+opencode/

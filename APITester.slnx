@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="APITester.Core/APITester.Core.csproj" />
+  <Project Path="APITester.Rest/APITester.Rest.csproj" />
+  <Project Path="APITester.Tests/APITester.Tests.csproj" />
+</Solution>

@@ -1,0 +1,6 @@
+{
+  "name": "Obtener usuarios",
+  "url": "https://jsonplaceholder.typicode.com/users",
+  "method": "GET",
+  "output": "usuarios.json"
+}
