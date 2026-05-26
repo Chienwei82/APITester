@@ -166,4 +166,21 @@ public class GenericConfigLoaderTests : IDisposable
         Assert.Equal("https://api.example.com/1", result[0].Url);
         Assert.Null(result[1].Url);
     }
+
+    [Fact]
+    public async Task FileExceedsMaxSize_ThrowsInvalidDataException()
+    {
+        // Create a file larger than 10MB
+        var path = Path.Combine(_tempDir, "large.json");
+        using (var fs = new FileStream(path, FileMode.Create))
+        {
+            var buffer = new byte[1024 * 1024]; // 1MB chunks
+            for (int i = 0; i < 11; i++) // 11MB total
+                fs.Write(buffer);
+        }
+
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(
+            () => _loader.LoadAsync(path));
+        Assert.Contains("demasiado grande", ex.Message);
+    }
 }

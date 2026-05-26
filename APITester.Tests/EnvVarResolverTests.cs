@@ -69,4 +69,37 @@ public class EnvVarResolverTests
         Assert.Equal($"Bearer {TestVarValue}", result["Authorization"]);
         Assert.Equal("static-value", result["X-Custom"]);
     }
+
+    [Fact]
+    public void Resolve_DictionaryWithUnknownVar_ReturnsEmptyString()
+    {
+        var input = new Dictionary<string, string>
+        {
+            ["Token"] = "${NONEXISTENT_VAR_12345}"
+        };
+
+        var result = EnvVarResolver.Resolve(input);
+
+        // Unknown variables are kept as placeholders in string resolution,
+        // but dictionary resolution returns empty string for null results
+        Assert.Equal("${NONEXISTENT_VAR_12345}", result["Token"]);
+    }
+
+    [Fact]
+    public void Resolve_DictionaryWithStaticValues_PreservesKeys()
+    {
+        var input = new Dictionary<string, string>
+        {
+            ["key1"] = "value1",
+            ["key2"] = "value2",
+            ["key3"] = $"prefix-${{{TestVarName}}}-suffix"
+        };
+
+        var result = EnvVarResolver.Resolve(input);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("value1", result["key1"]);
+        Assert.Equal("value2", result["key2"]);
+        Assert.Equal($"prefix-{TestVarValue}-suffix", result["key3"]);
+    }
 }

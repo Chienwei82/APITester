@@ -68,7 +68,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token);
 
-        using HttpClientHandler? handler = CertHandlerFactory.Create(config.Cert);
+        var handler = CertHandlerFactory.Create(config.Cert);
         using var ownedClient = handler is not null
             ? new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }
             : null;
@@ -100,6 +100,17 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>
         return $"{url}{sep}{string.Join("&", segments)}";
     }
 
+    private static readonly HashSet<string> ForbiddenHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Content-Length", "Transfer-Encoding", "Host", "Connection",
+        "Upgrade", "Proxy-Connection", "Keep-Alive", "TE", "Trailer"
+    };
+
+    private static readonly HashSet<string> ForbiddenHeaderValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "\r", "\n", "\r\n"
+    };
+
     private static HttpRequestMessage BuildHttpRequest(RestRequestConfig config, string url)
     {
         var method = new HttpMethod(config.Method.ToUpperInvariant());
@@ -113,6 +124,13 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>
         {
             if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                 continue;
+
+            if (ForbiddenHeaders.Contains(key))
+                throw new InvalidOperationException($"Header '{key}' no esta permitido por seguridad");
+
+            if (value.IndexOfAny(['\r', '\n']) >= 0)
+                throw new InvalidOperationException($"El valor del header '{key}' contiene caracteres invalidos");
+
             request.Headers.TryAddWithoutValidation(key, value);
         }
 

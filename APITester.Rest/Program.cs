@@ -53,12 +53,11 @@ if (requests.Count == 0)
 }
 
 var totalSw = Stopwatch.StartNew();
-var results = new ApiResponse[requests.Count];
 
 var executor = new HttpExecutor();
 var semaphore = new SemaphoreSlim(4, 4);
 
-var tasks = requests.Select(async (config, i) =>
+var indexedTasks = requests.Select(async (config, i) =>
 {
     await semaphore.WaitAsync().ConfigureAwait(false);
     try
@@ -67,8 +66,6 @@ var tasks = requests.Select(async (config, i) =>
         ConsolePresenter.PrintRequestHeader(label, i, requests.Count);
 
         var result = await executor.ExecuteAsync(config).ConfigureAwait(false);
-        results[i] = result;
-
         ConsolePresenter.PrintResponseSummary(result);
 
         if (cliArgs.Verbose)
@@ -78,6 +75,8 @@ var tasks = requests.Select(async (config, i) =>
             ConsolePresenter.PrintVerboseLine("Cert", config.Cert?.Path);
             ConsolePresenter.PrintVerboseLine("Retries", config.Retries > 0 ? $"{config.Retries} max" : null);
         }
+
+        return (index: i, result);
     }
     finally
     {
@@ -85,20 +84,29 @@ var tasks = requests.Select(async (config, i) =>
     }
 });
 
-await Task.WhenAll(tasks).ConfigureAwait(false);
+var indexedResults = await Task.WhenAll(indexedTasks).ConfigureAwait(false);
 totalSw.Stop();
 
+var results = indexedResults
+    .OrderBy(r => r.index)
+    .Select(r => r.result)
+    .ToList();
+
+// Output file precedence:
+// 1. CLI argument (-o/--output)
+// 2. First request's "output" field in config
+// 3. Default filename "rest-response.json"
 var outputFile = cliArgs.OutputFile
     ?? requests.FirstOrDefault()?.Output
     ?? "rest-response.json";
 
-await JsonFormatter.SaveToFileAsync(outputFile, results.ToList()).ConfigureAwait(false);
+await JsonFormatter.SaveToFileAsync(outputFile, results).ConfigureAwait(false);
 
 var summary = new ExecutionSummary
 {
     OutputFile = outputFile,
     TotalElapsedMs = totalSw.ElapsedMilliseconds,
-    TotalRequests = results.Length,
+    TotalRequests = results.Count,
     SuccessfulRequests = results.Count(r => r.Response is not null),
     FailedRequests = results.Count(r => r.Error is not null)
 };

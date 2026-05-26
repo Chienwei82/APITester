@@ -24,6 +24,10 @@ public class ConsoleLogger : ILogger
 
     private void WriteLine(string text, ConsoleColor color)
     {
+        // Lock MUST cover the entire color-change-write-reset sequence.
+        // Minimizing the lock scope would allow other threads to change
+        // Console.ForegroundColor between our SetColor and WriteLine calls,
+        // causing mixed/corrupted console output.
         lock (_lock)
         {
             if (_writer == Console.Out || _writer == Console.Error)
