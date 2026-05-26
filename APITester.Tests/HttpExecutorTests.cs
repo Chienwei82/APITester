@@ -216,6 +216,71 @@ public class HttpExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ForbiddenHeader_ThrowsInvalidOperationException()
+    {
+        var (executor, _) = CreateExecutor();
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/data",
+            Method = "GET",
+            Headers = new Dictionary<string, string>
+            {
+                ["Content-Length"] = "100"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Error);
+        Assert.Contains("no esta permitido", result.Error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HeaderWithNewline_ThrowsInvalidOperationException()
+    {
+        var (executor, _) = CreateExecutor();
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/data",
+            Method = "GET",
+            Headers = new Dictionary<string, string>
+            {
+                ["X-Custom"] = "value\r\nInjected: malicious"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Error);
+        Assert.Contains("caracteres invalidos", result.Error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ValidHeaders_AreSent()
+    {
+        var (executor, handler) = CreateExecutor();
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/data",
+            Method = "GET",
+            Headers = new Dictionary<string, string>
+            {
+                ["X-Api-Key"] = "secret123",
+                ["Accept"] = "application/json"
+            }
+        };
+
+        await executor.ExecuteAsync(config);
+
+        Assert.NotNull(handler.LastRequest);
+        Assert.True(handler.LastRequest.Headers.Contains("X-Api-Key"));
+        Assert.True(handler.LastRequest.Headers.Contains("Accept"));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Timeout_ReturnsError()
     {
         // Use a handler that never completes, so the timeout triggers

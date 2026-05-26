@@ -4,6 +4,8 @@ namespace APITester.Core.Services;
 
 public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
 {
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -22,6 +24,11 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"No se encuentra '{filePath}'");
+
+        var fileInfo = new FileInfo(filePath);
+        if (fileInfo.Length > MaxFileSizeBytes)
+            throw new InvalidDataException(
+                $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
 
         var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
@@ -47,9 +54,9 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
             {
                 try
                 {
-                    var multiple = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
-                    if (multiple is { Count: > 0 })
-                        return multiple;
+                    var asArray = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
+                    if (asArray is { Count: > 0 })
+                        return asArray;
                 }
                 catch (JsonException ex)
                 {
@@ -69,12 +76,11 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
                     throw new InvalidDataException($"Error deserializando JSON como objeto: {ex.Message}", ex);
                 }
 
-                // If single doesn't validate, still try as list (for edge cases)
                 try
                 {
-                    var multiple = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
-                    if (multiple is { Count: > 0 })
-                        return multiple;
+                    var asList = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
+                    if (asList is { Count: > 0 })
+                        return asList;
                 }
                 catch (JsonException ex)
                 {
