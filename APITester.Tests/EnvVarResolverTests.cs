@@ -102,4 +102,30 @@ public class EnvVarResolverTests
         Assert.Equal("value2", result["key2"]);
         Assert.Equal($"prefix-{TestVarValue}-suffix", result["key3"]);
     }
+
+    [Fact]
+    public void Resolve_VariableWithDefault_UsesDefaultWhenVarMissing()
+    {
+        var result = EnvVarResolver.Resolve("${MISSING_VAR:-fallback-value}");
+
+        Assert.Equal("fallback-value", result);
+    }
+
+    [Fact]
+    public void Resolve_VariableWithDefault_UsesEnvVarWhenExists()
+    {
+        var result = EnvVarResolver.Resolve($"${{{TestVarName}:-fallback-value}}");
+
+        Assert.Equal(TestVarValue, result);
+    }
+
+    [Fact]
+    public void Resolve_MultipleVariablesWithDefaults_AllResolved()
+    {
+        Environment.SetEnvironmentVariable("VAR_WITH_VALUE", "exists");
+
+        var result = EnvVarResolver.Resolve("${VAR_WITH_VALUE:-default1}:${MISSING_VAR:-default2}");
+
+        Assert.Equal("exists:default2", result);
+    }
 }

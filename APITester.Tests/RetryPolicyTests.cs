@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using APITester.Core.Services;
 
 namespace APITester.Tests;
@@ -86,5 +87,34 @@ public class RetryPolicyTests
 
         Assert.Equal("success", result);
         Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task ExponentialBackoff_IncreasesDelay()
+    {
+        var policy = new RetryPolicy { MaxRetries = 3, DelayMs = 50, UseExponentialBackoff = true };
+        var attempts = 0;
+        var delays = new List<long>();
+
+        var sw = Stopwatch.StartNew();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await policy.ExecuteAsync<int>(async ct =>
+            {
+                attempts++;
+                if (attempts > 1)
+                {
+                    delays.Add(sw.ElapsedMilliseconds);
+                }
+                throw new HttpRequestException("fail");
+            }));
+        sw.Stop();
+
+        Assert.Equal(4, attempts);
+        Assert.Equal(3, delays.Count);
+        for (int i = 1; i < delays.Count; i++)
+        {
+            Assert.True(delays[i] > delays[i - 1],
+                $"Delay {i} ({delays[i]}ms) should be greater than delay {i - 1} ({delays[i - 1]}ms)");
+        }
     }
 }

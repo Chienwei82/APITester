@@ -24,7 +24,6 @@ public class ResponseInfo
     public Dictionary<string, string>? Headers { get; init; }
     public JsonNode? Body { get; set; }
     public string? BodyRaw { get; init; }
-    public string? BodyExtracted { get; set; }
     public long TimeMs { get; init; }
     public int SizeBytes { get; init; }
 }

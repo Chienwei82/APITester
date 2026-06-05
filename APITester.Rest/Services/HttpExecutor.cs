@@ -8,15 +8,33 @@ using APITester.Rest.Models;
 
 namespace APITester.Rest.Services;
 
-public class HttpExecutor : IApiExecutor<RestRequestConfig>
+public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 {
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
 
     public HttpExecutor(ILogger? logger = null, HttpClient? httpClient = null)
     {
         _logger = logger ?? new ConsoleLogger();
-        _httpClient = httpClient ?? new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        if (httpClient is not null)
+        {
+            _httpClient = httpClient;
+            _ownsHttpClient = false;
+        }
+        else
+        {
+            _httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            _ownsHttpClient = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttpClient)
+        {
+            _httpClient.Dispose();
+        }
     }
 
     public async Task<ApiResponse> ExecuteAsync(RestRequestConfig config, CancellationToken cancellationToken = default)
@@ -63,16 +81,16 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>
         response.Request.RequestHeaders = request.Headers
             .ToDictionary(h => h.Key, h => string.Join(", ", h.Value));
 
+        var handler = CertHandlerFactory.Create(config.Cert);
+        using var ownedHandler = handler;
         using var timeoutCts = new CancellationTokenSource(
             TimeSpan.FromSeconds(config.TimeoutInSeconds));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token);
 
-        var handler = CertHandlerFactory.Create(config.Cert);
-        using var ownedClient = handler is not null
-            ? new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }
-            : null;
-        var client = ownedClient ?? _httpClient;
+        var client = ownedHandler is not null
+            ? new HttpClient(ownedHandler) { Timeout = Timeout.InfiniteTimeSpan }
+            : _httpClient;
 
         var sw = Stopwatch.StartNew();
         using var httpResponse = await client.SendAsync(
