@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using APITester.Core.Models;
 
@@ -16,6 +17,6 @@ public static class JsonFormatter
         object outputData = results.Count == 1 ? results[0] : results;
 
         var json = JsonSerializer.Serialize(outputData, Options);
-        await File.WriteAllTextAsync(filePath, json).ConfigureAwait(false);
+        await File.WriteAllTextAsync(filePath, json, Encoding.UTF8).ConfigureAwait(false);
     }
 }

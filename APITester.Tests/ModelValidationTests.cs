@@ -43,4 +43,34 @@ public class ModelValidationTests
 
         Assert.Contains(warnings, w => w.Contains("no soportado"));
     }
+
+    [Fact]
+    public void RestRequestConfig_BodyWithGetMethod_HasWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com",
+            Method = "GET",
+            Body = "{\"key\":\"value\"}"
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.Contains(warnings, w => w.Contains("no soporta body"));
+    }
+
+    [Fact]
+    public void RestRequestConfig_BodyWithPostMethod_NoWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com",
+            Method = "POST",
+            Body = "{\"key\":\"value\"}"
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.DoesNotContain(warnings, w => w.Contains("no soporta body"));
+    }
 }

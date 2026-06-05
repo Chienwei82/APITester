@@ -4,6 +4,9 @@ public class RetryPolicy
 {
     public int MaxRetries { get; init; } = 0;
     public int DelayMs { get; init; } = 1000;
+    public bool UseExponentialBackoff { get; init; } = false;
+
+    private static readonly Random _random = new();
 
     public static RetryPolicy None => new();
 
@@ -24,14 +27,25 @@ public class RetryPolicy
                 lastException = ex;
                 if (attempt < MaxRetries)
                 {
-                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries} fallido, reintentando en {DelayMs}ms...");
-                    await Task.Delay(DelayMs, cancellationToken).ConfigureAwait(false);
+                    var delay = CalculateDelay(attempt);
+                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries} fallido, reintentando en {delay}ms...");
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
 
         throw new InvalidOperationException(
             $"Operacion fallo despues de {MaxRetries + 1} intentos", lastException);
+    }
+
+    private int CalculateDelay(int attempt)
+    {
+        if (!UseExponentialBackoff)
+            return DelayMs;
+
+        var exponentialDelay = DelayMs * (int)Math.Pow(2, attempt);
+        var jitter = (int)(_random.NextDouble() * DelayMs);
+        return Math.Min(exponentialDelay + jitter, 30000);
     }
 
     private static bool IsRetryable(Exception ex, CancellationToken cancellationToken)

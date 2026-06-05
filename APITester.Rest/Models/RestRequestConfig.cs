@@ -37,7 +37,13 @@ public class RestRequestConfig
 
         if (!IsValidMethod(Method))
             yield return $"Metodo HTTP '{Method}' no soportado";
+
+        if (!string.IsNullOrEmpty(Body) && !HasBody(Method))
+            yield return $"El metodo '{Method}' no soporta body";
     }
+
+    private static bool HasBody(string method) =>
+        method.ToUpperInvariant() is "POST" or "PUT" or "PATCH";
 
     private static bool IsValidMethod(string method) =>
         method.ToUpperInvariant() is "GET" or "POST" or "PUT" or "PATCH" or "DELETE" or "HEAD" or "OPTIONS";

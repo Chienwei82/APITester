@@ -7,9 +7,9 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_DefaultConfig_WhenNoArgs()
     {
-        var result = ArgumentParser.Parse([], "default.yaml");
+        var result = ArgumentParser.Parse([], "rest-config.json");
 
-        Assert.Equal("default.yaml", result.ConfigFile);
+        Assert.Equal("rest-config.json", result.ConfigFile);
         Assert.False(result.Verbose);
         Assert.False(result.ShowHelp);
         Assert.Null(result.OutputFile);
@@ -18,23 +18,23 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_ConfigFile_ShortFlag()
     {
-        var result = ArgumentParser.Parse(["-c", "my-config.yaml"], "default.yaml");
+        var result = ArgumentParser.Parse(["-c", "my-config.json"], "rest-config.json");
 
-        Assert.Equal("my-config.yaml", result.ConfigFile);
+        Assert.Equal("my-config.json", result.ConfigFile);
     }
 
     [Fact]
     public void Parse_ConfigFile_LongFlag()
     {
-        var result = ArgumentParser.Parse(["--config", "my-config.yaml"], "default.yaml");
+        var result = ArgumentParser.Parse(["--config", "my-config.json"], "rest-config.json");
 
-        Assert.Equal("my-config.yaml", result.ConfigFile);
+        Assert.Equal("my-config.json", result.ConfigFile);
     }
 
     [Fact]
     public void Parse_OutputFile_ShortFlag()
     {
-        var result = ArgumentParser.Parse(["-o", "output.json"], "default.yaml");
+        var result = ArgumentParser.Parse(["-o", "output.json"], "rest-config.json");
 
         Assert.Equal("output.json", result.OutputFile);
     }
@@ -42,7 +42,7 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_Verbose_ShortFlag()
     {
-        var result = ArgumentParser.Parse(["-v"], "default.yaml");
+        var result = ArgumentParser.Parse(["-v"], "rest-config.json");
 
         Assert.True(result.Verbose);
     }
@@ -50,7 +50,7 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_Help_LongFlag()
     {
-        var result = ArgumentParser.Parse(["--help"], "default.yaml");
+        var result = ArgumentParser.Parse(["--help"], "rest-config.json");
 
         Assert.True(result.ShowHelp);
     }
@@ -58,9 +58,9 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_MultipleFlags_Combined()
     {
-        var result = ArgumentParser.Parse(["-c", "test.yaml", "-o", "out.json", "-v"], "default.yaml");
+        var result = ArgumentParser.Parse(["-c", "test.json", "-o", "out.json", "-v"], "rest-config.json");
 
-        Assert.Equal("test.yaml", result.ConfigFile);
+        Assert.Equal("test.json", result.ConfigFile);
         Assert.Equal("out.json", result.OutputFile);
         Assert.True(result.Verbose);
         Assert.False(result.ShowHelp);
@@ -69,9 +69,9 @@ public class ArgumentParserTests
     [Fact]
     public void Parse_IgnoresUnknownFlags()
     {
-        var result = ArgumentParser.Parse(["-c", "test.yaml", "--unknown", "-v"], "default.yaml");
+        var result = ArgumentParser.Parse(["-c", "test.json", "--unknown", "-v"], "rest-config.json");
 
-        Assert.Equal("test.yaml", result.ConfigFile);
+        Assert.Equal("test.json", result.ConfigFile);
         Assert.True(result.Verbose);
     }
 }

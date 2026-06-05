@@ -47,6 +47,12 @@ jobs:
 
       - name: Package binaries
         run: |
+          cp rest-config.json ./publish/linux-x64/
+          cp rest-config.json ./publish/win-x64/
+          cp rest-config.json ./publish/osx-x64/
+          cp leeme.md ./publish/linux-x64/
+          cp leeme.md ./publish/win-x64/
+          cp leeme.md ./publish/osx-x64/
           cd publish
           zip -r ../APITester-linux-x64.zip linux-x64/
           zip -r ../APITester-win-x64.zip win-x64/
