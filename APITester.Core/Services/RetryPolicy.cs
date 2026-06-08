@@ -6,6 +6,8 @@ public class RetryPolicy
     public int DelayMs { get; init; } = 1000;
     public bool UseExponentialBackoff { get; init; } = false;
 
+    private static readonly Random _random = new();
+
     public static RetryPolicy None => new();
 
     public async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, ILogger? logger = null, CancellationToken cancellationToken = default)
@@ -25,7 +27,7 @@ public class RetryPolicy
                 lastException = ex;
                 if (attempt < MaxRetries)
                 {
-                    var delay = CalculateDelay(attempt, DelayMs, UseExponentialBackoff);
+                    var delay = CalculateDelay(attempt);
                     logger?.Warn($"Intento {attempt + 1}/{MaxRetries} fallido, reintentando en {delay}ms...");
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
@@ -36,13 +38,13 @@ public class RetryPolicy
             $"Operacion fallo despues de {MaxRetries + 1} intentos", lastException);
     }
 
-    private static int CalculateDelay(int attempt, int delayMs, bool useExponentialBackoff)
+    private int CalculateDelay(int attempt)
     {
-        if (!useExponentialBackoff)
-            return delayMs;
+        if (!UseExponentialBackoff)
+            return DelayMs;
 
-        var exponentialDelay = delayMs * (int)Math.Pow(2, attempt);
-        var jitter = (int)(Random.Shared.NextDouble() * delayMs);
+        var exponentialDelay = DelayMs * (int)Math.Pow(2, attempt);
+        var jitter = (int)(_random.NextDouble() * DelayMs);
         return Math.Min(exponentialDelay + jitter, 30000);
     }
 
