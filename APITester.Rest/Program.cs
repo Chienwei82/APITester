@@ -20,3 +20,8 @@ catch (OperationCanceledException)
     Console.WriteLine("\nEjecucion cancelada por el usuario.");
     return 130;
 }
+catch (AggregateException ex) when (ex.InnerExceptions.Any(e => e is OperationCanceledException))
+{
+    Console.WriteLine("\nEjecucion cancelada por el usuario.");
+    return 130;
+}

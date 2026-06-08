@@ -39,6 +39,11 @@ Thumbs.db
 *.key
 secrets.json
 
+## Generated output
+usuarios.json
+rest-response.json
+*-response.json
+
 ## Misc
 node_modules/
 opencode/

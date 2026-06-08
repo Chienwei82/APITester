@@ -124,11 +124,6 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         "Upgrade", "Proxy-Connection", "Keep-Alive", "TE", "Trailer"
     };
 
-    private static readonly HashSet<string> ForbiddenHeaderValues = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "\r", "\n", "\r\n"
-    };
-
     private static HttpRequestMessage BuildHttpRequest(RestRequestConfig config, string url)
     {
         var method = new HttpMethod(config.Method.ToUpperInvariant());

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using APITester.Core.Models;
 using APITester.Core.Services;
 using APITester.Rest.Models;
@@ -9,11 +8,8 @@ namespace APITester.Rest;
 
 public class RestOrchestrator
 {
-    private readonly TextWriter _out;
-
-    public RestOrchestrator(TextWriter? outWriter = null)
+    public RestOrchestrator()
     {
-        _out = outWriter ?? Console.Out;
     }
 
     public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
@@ -52,7 +48,7 @@ public class RestOrchestrator
         return await ExecuteRequestsAsync(requests, cliArgs, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<int> ExecuteRequestsAsync(
+    private static async Task<int> ExecuteRequestsAsync(
         List<RestRequestConfig> requests,
         CliArgs cliArgs,
         CancellationToken cancellationToken)
