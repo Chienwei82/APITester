@@ -26,6 +26,9 @@ public class RestOrchestrator
             return 0;
         }
 
+        ConsolePresenter.SetShowProgress(!cliArgs.Quiet);
+        ConsolePresenter.SetUseColors(!cliArgs.NoColor);
+
         List<RestRequestConfig> requests;
         try
         {
@@ -42,6 +45,12 @@ public class RestOrchestrator
             .ToList();
         if (warnings.Count > 0)
             ConsolePresenter.PrintValidationWarnings(warnings);
+
+        if (cliArgs.StrictValidation && warnings.Count > 0)
+        {
+            ConsolePresenter.PrintFatalError("Modo estricto: hay advertencias de validacion. La ejecucion se detiene.");
+            return 1;
+        }
 
         if (requests.Count == 0)
         {
@@ -60,52 +69,38 @@ public class RestOrchestrator
         var totalSw = Stopwatch.StartNew();
 
         using var executor = new HttpExecutor();
-        var semaphore = new SemaphoreSlim(4, 4);
+        var requestExecutor = new RequestExecutor(executor, cliArgs.MaxConcurrency, cliArgs.Verbose);
 
-        var indexedTasks = requests.Select(async (config, i) =>
-        {
-            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var label = config.Name ?? $"{config.Method} {config.Url}";
-                ConsolePresenter.PrintRequestHeader(label, i, requests.Count);
-
-                var result = await executor.ExecuteAsync(config, cancellationToken).ConfigureAwait(false);
-                ConsolePresenter.PrintResponseSummary(result);
-
-                if (cliArgs.Verbose)
-                {
-                    ConsolePresenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
-                    ConsolePresenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
-                    ConsolePresenter.PrintVerboseLine("Cert", config.Cert?.Path);
-                    ConsolePresenter.PrintVerboseLine("Retries", config.Retries > 0 ? $"{config.Retries} max" : null);
-                }
-
-                return (index: i, result);
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-
-        var indexedResults = await Task.WhenAll(indexedTasks).ConfigureAwait(false);
+        var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 
-        var results = indexedResults
-            .OrderBy(r => r.index)
-            .Select(r => r.result)
-            .ToList();
+        var defaultOutput = cliArgs.OutputFile ?? "rest-response.json";
 
-        var outputFile = cliArgs.OutputFile
-            ?? requests.FirstOrDefault()?.Output
-            ?? "rest-response.json";
+        // Process each request with its own output file
+        for (int i = 0; i < results.Count; i++)
+        {
+            var result = results[i];
+            var config = requests[i];
 
-        await JsonFormatter.SaveToFileAsync(outputFile, results).ConfigureAwait(false);
+            var requestOutput = config.Output ?? defaultOutput;
+
+            if (config.AppendOutput)
+            {
+                await JsonFormatter.AppendToFileAsync(requestOutput, result).ConfigureAwait(false);
+            }
+            else if (cliArgs.OutputFormat == "ndjson")
+            {
+                await JsonFormatter.SaveToFileNdjsonAsync(requestOutput, new List<ApiResponse> { result }).ConfigureAwait(false);
+            }
+            else
+            {
+                await JsonFormatter.SaveToFileAsync(requestOutput, new List<ApiResponse> { result }).ConfigureAwait(false);
+            }
+        }
 
         var summary = new ExecutionSummary
         {
-            OutputFile = outputFile,
+            OutputFile = defaultOutput,
             TotalElapsedMs = totalSw.ElapsedMilliseconds,
             TotalRequests = results.Count,
             SuccessfulRequests = results.Count(r => r.Response is not null),
@@ -115,17 +110,5 @@ public class RestOrchestrator
         ConsolePresenter.PrintSummary(summary);
 
         return summary.FailedRequests > 0 ? 1 : 0;
-    }
-
-    private static string? BuildQueryPreview(Dictionary<string, string>? q)
-    {
-        if (q is null or { Count: 0 }) return null;
-        return string.Join("&", q.Select(kv => $"{kv.Key}={kv.Value}"));
-    }
-
-    private static string? BuildBodyPreview(string? body)
-    {
-        if (string.IsNullOrEmpty(body)) return null;
-        return body.Length <= 200 ? body : body[..200] + "...";
     }
 }

@@ -75,17 +75,6 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
                 {
                     throw new InvalidDataException($"Error deserializando JSON como objeto: {ex.Message}", ex);
                 }
-
-                try
-                {
-                    var asList = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
-                    if (asList is { Count: > 0 })
-                        return asList;
-                }
-                catch (JsonException ex)
-                {
-                    throw new InvalidDataException($"Error deserializando JSON como lista: {ex.Message}", ex);
-                }
             }
         }
 

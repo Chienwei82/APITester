@@ -1,12 +1,14 @@
 using System.Text.Json.Nodes;
+using APITester.Core.Services;
 
 namespace APITester.Core.Models;
 
-public class ApiResponse
+public class ApiResponse : IHasStatusCode
 {
     public RequestInfo Request { get; init; } = new();
     public ResponseInfo? Response { get; set; }
     public string? Error { get; set; }
+    int IHasStatusCode.StatusCode => Response?.StatusCode ?? 0;
 }
 
 public class RequestInfo

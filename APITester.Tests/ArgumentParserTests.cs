@@ -67,11 +67,103 @@ public class ArgumentParserTests
     }
 
     [Fact]
-    public void Parse_IgnoresUnknownFlags()
+    public void Parse_UnknownFlag_ThrowsArgumentException()
     {
-        var result = ArgumentParser.Parse(["-c", "test.json", "--unknown", "-v"], "rest-config.json");
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["-c", "test.json", "--unknown", "-v"], "rest-config.json"));
 
-        Assert.Equal("test.json", result.ConfigFile);
-        Assert.True(result.Verbose);
+        Assert.Contains("Argumento desconocido: --unknown", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_EqualsSyntax_ConfigFile()
+    {
+        var result = ArgumentParser.Parse(["--config=my-config.json"], "rest-config.json");
+
+        Assert.Equal("my-config.json", result.ConfigFile);
+    }
+
+    [Fact]
+    public void Parse_EqualsSyntax_OutputFile()
+    {
+        var result = ArgumentParser.Parse(["--output=out.json"], "rest-config.json");
+
+        Assert.Equal("out.json", result.OutputFile);
+    }
+
+    [Fact]
+    public void Parse_EqualsSyntax_Jobs()
+    {
+        var result = ArgumentParser.Parse(["--jobs=8"], "rest-config.json");
+
+        Assert.Equal(8, result.MaxConcurrency);
+    }
+
+    [Fact]
+    public void Parse_EqualsSyntax_Format()
+    {
+        var result = ArgumentParser.Parse(["--format=ndjson"], "rest-config.json");
+
+        Assert.Equal("ndjson", result.OutputFormat);
+    }
+
+    [Fact]
+    public void Parse_InvalidJobsValue_ThrowsArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["--jobs=invalid"], "rest-config.json"));
+
+        Assert.Contains("Valor invalido", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_InvalidFormatValue_ThrowsArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["--format=xml"], "rest-config.json"));
+
+        Assert.Contains("Formato invalido", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_StrictFlag()
+    {
+        var result = ArgumentParser.Parse(["--strict"], "rest-config.json");
+
+        Assert.True(result.StrictValidation);
+    }
+
+    [Fact]
+    public void Parse_QuietFlag()
+    {
+        var result = ArgumentParser.Parse(["--quiet"], "rest-config.json");
+
+        Assert.True(result.Quiet);
+    }
+
+    [Fact]
+    public void Parse_NoColorFlag()
+    {
+        var result = ArgumentParser.Parse(["--no-color"], "rest-config.json");
+
+        Assert.True(result.NoColor);
+    }
+
+    [Fact]
+    public void Parse_Jobs_UpperBound_ThrowsException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["--jobs=200"], "rest-config.json"));
+
+        Assert.Contains("entre 1 y 100", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_Jobs_Negative_ThrowsException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["--jobs=-5"], "rest-config.json"));
+
+        Assert.Contains("entre 1 y 100", ex.Message);
     }
 }

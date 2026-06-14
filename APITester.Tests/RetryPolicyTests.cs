@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using APITester.Core.Models;
 using APITester.Core.Services;
 
 namespace APITester.Tests;
@@ -116,5 +117,85 @@ public class RetryPolicyTests
             Assert.True(delays[i] > delays[i - 1],
                 $"Delay {i} ({delays[i]}ms) should be greater than delay {i - 1} ({delays[i - 1]}ms)");
         }
+    }
+
+    [Fact]
+    public async Task RetryOnStatusCodes_RetriesOnMatchingStatusCode()
+    {
+        var policy = new RetryPolicy { MaxRetries = 2, DelayMs = 10, RetryOnStatusCodes = [500] };
+        var attempts = 0;
+
+        var result = await policy.ExecuteAsync(ct =>
+        {
+            attempts++;
+            return Task.FromResult(new ApiResponse
+            {
+                Request = new RequestInfo(),
+                Response = new ResponseInfo { StatusCode = 500 }
+            });
+        });
+
+        Assert.Equal(3, attempts);
+        Assert.Equal(500, ((IHasStatusCode)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryOnStatusCodes_SucceedsOnRetry()
+    {
+        var policy = new RetryPolicy { MaxRetries = 2, DelayMs = 10, RetryOnStatusCodes = [500, 503] };
+        var attempts = 0;
+
+        var result = await policy.ExecuteAsync(ct =>
+        {
+            attempts++;
+            var status = attempts >= 2 ? 200 : 503;
+            return Task.FromResult(new ApiResponse
+            {
+                Request = new RequestInfo(),
+                Response = new ResponseInfo { StatusCode = status }
+            });
+        });
+
+        Assert.Equal(2, attempts);
+        Assert.Equal(200, ((IHasStatusCode)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryOnStatusCodes_NonMatchingStatusCode_DoesNotRetry()
+    {
+        var policy = new RetryPolicy { MaxRetries = 2, DelayMs = 10, RetryOnStatusCodes = [500] };
+        var attempts = 0;
+
+        var result = await policy.ExecuteAsync(ct =>
+        {
+            attempts++;
+            return Task.FromResult(new ApiResponse
+            {
+                Request = new RequestInfo(),
+                Response = new ResponseInfo { StatusCode = 400 }
+            });
+        });
+
+        Assert.Equal(1, attempts);
+        Assert.Equal(400, ((IHasStatusCode)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task RetryOnStatusCodes_NullList_DoesNotRetryOnStatus()
+    {
+        var policy = new RetryPolicy { MaxRetries = 2, DelayMs = 10 };
+        var attempts = 0;
+
+        var result = await policy.ExecuteAsync(ct =>
+        {
+            attempts++;
+            return Task.FromResult(new ApiResponse
+            {
+                Request = new RequestInfo(),
+                Response = new ResponseInfo { StatusCode = 500 }
+            });
+        });
+
+        Assert.Equal(1, attempts);
     }
 }
