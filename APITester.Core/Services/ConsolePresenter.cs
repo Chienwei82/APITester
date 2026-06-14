@@ -6,16 +6,46 @@ namespace APITester.Core.Services;
 public static class ConsolePresenter
 {
     private static readonly object _lock = new();
+    private static int _completedCount = 0;
+    private static int _totalCount = 0;
+    private static bool _showProgress = true;
+    private static bool _useColors = true;
 
     public static void PrintRequestHeader(string label, int index, int total)
     {
         lock (_lock)
         {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write($"[{index + 1}/{total}] ");
-            Console.ResetColor();
+            if (index == 0)
+            {
+                _completedCount = 0;
+                _totalCount = total;
+            }
+            if (_showProgress && total > 1)
+            {
+                PrintProgressBar(_completedCount, total);
+            }
+            if (_useColors)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write($"[{index + 1}/{total}] ");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.Write($"[{index + 1}/{total}] ");
+            }
             Console.WriteLine(label);
         }
+    }
+
+    public static void SetShowProgress(bool show)
+    {
+        _showProgress = show;
+    }
+
+    public static void SetUseColors(bool useColors)
+    {
+        _useColors = useColors;
     }
 
     public static void PrintResponseSummary(ApiResponse response)
@@ -39,6 +69,31 @@ public static class ConsolePresenter
         WriteLineColored(
             $"  Estado: {r.StatusCode} {r.StatusText}  | {r.TimeMs}ms | {size}",
             color);
+    }
+
+    public static void PrintProgress(int completed, int total)
+    {
+        lock (_lock)
+        {
+            _completedCount = completed;
+            if (_showProgress && total > 1)
+            {
+                PrintProgressBar(completed, total);
+            }
+        }
+    }
+
+    private static void PrintProgressBar(int completed, int total)
+    {
+        if (total <= 1) return;
+
+        var percent = (double)completed / total;
+        var barWidth = 20;
+        var filled = (int)(percent * barWidth);
+        var bar = new string('█', filled) + new string('░', barWidth - filled);
+        Console.Write($"\r  Progreso: [{bar}] {percent:P0} ({completed}/{total})   ");
+        if (completed == total)
+            Console.WriteLine();
     }
 
     public static void PrintSummary(ExecutionSummary summary)
@@ -67,16 +122,22 @@ public static class ConsolePresenter
             Console.WriteLine($"API Tester — Cliente {protocol} portable");
             Console.WriteLine();
             Console.WriteLine("Uso:");
-            Console.WriteLine($"  dotnet run -- -c archivo.json [-o salida.json] [-v]");
+            Console.WriteLine($"  dotnet run -- -c archivo.json [-o salida.json] [-v] [-j N] [--format json|ndjson] [--strict] [--quiet] [--no-color]");
             Console.WriteLine();
             Console.WriteLine("Argumentos:");
-            Console.WriteLine($"  -c, --config   Archivo JSON (default: {defaultConfig})");
-            Console.WriteLine("  -o, --output   Archivo de salida");
-            Console.WriteLine("  -v, --verbose  Muestra detalles adicionales");
-            Console.WriteLine("  -h, --help     Muestra esta ayuda");
+            Console.WriteLine($"  -c, --config       Archivo JSON (default: {defaultConfig})");
+            Console.WriteLine("  -o, --output       Archivo de salida");
+            Console.WriteLine("  -j, --jobs N       Concurrencia maxima (default: 4, max: 100)");
+            Console.WriteLine("  -v, --verbose      Muestra detalles adicionales");
+            Console.WriteLine("  --format FORMAT    Formato salida: json o ndjson (default: json)");
+            Console.WriteLine("  --strict           Fallar si hay advertencias de validacion");
+            Console.WriteLine("  --quiet            Solo mostrar errores y resumen final");
+            Console.WriteLine("  --no-color         Deshabilitar salida con colores");
+            Console.WriteLine("  -h, --help         Muestra esta ayuda");
             Console.WriteLine();
             Console.WriteLine("Variables de entorno:");
             Console.WriteLine("  Usa ${NOMBRE_VAR} en el JSON para sustituir con variables de entorno.");
+            Console.WriteLine("  Soporta default: ${VAR:-default}");
             Console.WriteLine();
         }
     }
@@ -102,9 +163,16 @@ public static class ConsolePresenter
     {
         lock (_lock)
         {
-            Console.ForegroundColor = color;
-            Console.WriteLine(text);
-            Console.ResetColor();
+            if (_useColors)
+            {
+                Console.ForegroundColor = color;
+                Console.WriteLine(text);
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.WriteLine(text);
+            }
         }
     }
 

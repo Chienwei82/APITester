@@ -126,9 +126,8 @@ public class GenericConfigLoaderTests : IDisposable
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(
             () => _loader.LoadAsync(path));
-        // Falls through single-object check (valid JSON but no url),
-        // then tries as list, which fails because root is object not array
-        Assert.Contains("Error deserializando JSON como lista", ex.Message);
+        // Single object without URL fails validation, then falls to "JSON sin requests"
+        Assert.Contains("JSON sin requests", ex.Message);
     }
 
     [Fact]

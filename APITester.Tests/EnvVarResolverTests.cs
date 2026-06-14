@@ -71,7 +71,7 @@ public class EnvVarResolverTests
     }
 
     [Fact]
-    public void Resolve_DictionaryWithUnknownVar_ReturnsEmptyString()
+    public void Resolve_DictionaryWithUnknownVar_KeepsPlaceholder()
     {
         var input = new Dictionary<string, string>
         {
@@ -80,8 +80,7 @@ public class EnvVarResolverTests
 
         var result = EnvVarResolver.Resolve(input);
 
-        // Unknown variables are kept as placeholders in string resolution,
-        // but dictionary resolution returns empty string for null results
+        // Unknown variables keep their placeholder in both string and dictionary resolution
         Assert.Equal("${NONEXISTENT_VAR_12345}", result["Token"]);
     }
 

@@ -41,6 +41,6 @@ public static partial class EnvVarResolver
     {
         return input.ToDictionary(
             kv => kv.Key,
-            kv => Resolve(kv.Value) ?? string.Empty);
+            kv => Resolve(kv.Value) ?? kv.Value);
     }
 }

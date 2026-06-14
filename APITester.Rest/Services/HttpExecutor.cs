@@ -42,7 +42,9 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         var policy = new RetryPolicy
         {
             MaxRetries = config.Retries,
-            DelayMs = config.RetryDelayMilliseconds
+            DelayMs = config.RetryDelayMilliseconds,
+            UseExponentialBackoff = config.UseExponentialBackoff,
+            RetryOnStatusCodes = config.RetryOnStatusCodes
         };
 
         if (string.IsNullOrWhiteSpace(config.Url))
@@ -71,25 +73,21 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
             {
                 Name = config.Name,
                 Url = config.Url,
-                Method = config.Method
+                Method = config.Method,
+                RequestHeaders = RequestBuilder.GetRequestHeaders(config)
             }
         };
 
-        var url = BuildUrlWithQuery(config);
-
-        using var request = BuildHttpRequest(config, url);
-        response.Request.RequestHeaders = request.Headers
-            .ToDictionary(h => h.Key, h => string.Join(", ", h.Value));
+        using var request = RequestBuilder.Build(config);
 
         var handler = CertHandlerFactory.Create(config.Cert);
-        using var ownedHandler = handler;
         using var timeoutCts = new CancellationTokenSource(
             TimeSpan.FromSeconds(config.TimeoutInSeconds));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token);
 
-        var client = ownedHandler is not null
-            ? new HttpClient(ownedHandler) { Timeout = Timeout.InfiniteTimeSpan }
+        var client = handler is not null
+            ? new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan }
             : _httpClient;
 
         var sw = Stopwatch.StartNew();
@@ -99,62 +97,6 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 
         await FillResponseAsync(response, httpResponse, sw).ConfigureAwait(false);
         return response;
-    }
-
-    private static string BuildUrlWithQuery(RestRequestConfig config)
-    {
-        var url = EnvVarResolver.Resolve(config.Url)!;
-
-        var resolvedQuery = config.Query is not null
-            ? EnvVarResolver.Resolve(config.Query)
-            : null;
-
-        if (resolvedQuery is not { Count: > 0 })
-            return url;
-
-        var segments = resolvedQuery.Select(entry =>
-            $"{Uri.EscapeDataString(entry.Key)}={Uri.EscapeDataString(entry.Value)}");
-        var sep = url.Contains('?') ? '&' : '?';
-        return $"{url}{sep}{string.Join("&", segments)}";
-    }
-
-    private static readonly HashSet<string> ForbiddenHeaders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Content-Length", "Transfer-Encoding", "Host", "Connection",
-        "Upgrade", "Proxy-Connection", "Keep-Alive", "TE", "Trailer"
-    };
-
-    private static HttpRequestMessage BuildHttpRequest(RestRequestConfig config, string url)
-    {
-        var method = new HttpMethod(config.Method.ToUpperInvariant());
-        var request = new HttpRequestMessage(method, url);
-
-        var resolvedHeaders = config.Headers is not null
-            ? EnvVarResolver.Resolve(config.Headers)
-            : null;
-
-        foreach (var (key, value) in resolvedHeaders ?? [])
-        {
-            if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (ForbiddenHeaders.Contains(key))
-                throw new InvalidOperationException($"Header '{key}' no esta permitido por seguridad");
-
-            if (value.IndexOfAny(['\r', '\n']) >= 0)
-                throw new InvalidOperationException($"El valor del header '{key}' contiene caracteres invalidos");
-
-            request.Headers.TryAddWithoutValidation(key, value);
-        }
-
-        if (HasBody(method) && config.Body is not null)
-        {
-            var contentType = ResolveContentType(resolvedHeaders);
-            var resolvedBody = EnvVarResolver.Resolve(config.Body)!;
-            request.Content = new StringContent(resolvedBody, Encoding.UTF8, contentType);
-        }
-
-        return request;
     }
 
     private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw)
@@ -180,15 +122,5 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         if (string.IsNullOrWhiteSpace(rawBody)) return;
         try { response.Body = JsonNode.Parse(rawBody); }
         catch (System.Text.Json.JsonException) { }
-    }
-
-    private static bool HasBody(HttpMethod method) =>
-        method.Method is "POST" or "PUT" or "PATCH";
-
-    private static string ResolveContentType(Dictionary<string, string>? headers)
-    {
-        if (headers?.TryGetValue("Content-Type", out var ct) == true)
-            return ct;
-        return "application/json";
     }
 }
