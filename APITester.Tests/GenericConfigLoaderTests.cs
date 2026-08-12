@@ -17,6 +17,7 @@ public class GenericConfigLoaderTests : IDisposable
     {
         if (Directory.Exists(_tempDir))
             Directory.Delete(_tempDir, true);
+        GC.SuppressFinalize(this);
     }
 
     private readonly GenericConfigLoader<RestRequestConfig> _loader = new(

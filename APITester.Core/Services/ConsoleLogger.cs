@@ -16,7 +16,7 @@ public class ConsoleLogger : ILogger
     public void Warn(string message) =>
         WriteLine($"[ADVERTENCIA] {message}", ConsoleColor.Yellow);
 
-    public void Error(string message) =>
+    public void LogError(string message) =>
         WriteLine($"[ERROR] {message}", ConsoleColor.Red);
 
     public void Debug(string message) =>

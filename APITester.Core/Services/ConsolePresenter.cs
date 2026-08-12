@@ -6,8 +6,8 @@ namespace APITester.Core.Services;
 public static class ConsolePresenter
 {
     private static readonly object _lock = new();
-    private static int _completedCount = 0;
-    private static int _totalCount = 0;
+    private static int _completedCount;
+    private static int _totalCount;
     private static bool _showProgress = true;
     private static bool _useColors = true;
 

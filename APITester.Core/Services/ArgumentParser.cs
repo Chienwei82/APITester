@@ -12,17 +12,17 @@ public static class ArgumentParser
         {
             var arg = args[i];
 
-            if (arg.StartsWith("--config="))
+            if (arg.StartsWith("--config=", StringComparison.Ordinal))
             {
                 cli = cli with { ConfigFile = arg["--config=".Length..] };
                 continue;
             }
-            if (arg.StartsWith("--output="))
+            if (arg.StartsWith("--output=", StringComparison.Ordinal))
             {
                 cli = cli with { OutputFile = arg["--output=".Length..] };
                 continue;
             }
-            if (arg.StartsWith("--jobs=") || arg.StartsWith("--concurrency="))
+            if (arg.StartsWith("--jobs=", StringComparison.Ordinal) || arg.StartsWith("--concurrency=", StringComparison.Ordinal))
             {
                 var value = arg.Contains('=') ? arg.Split('=', 2)[1] : "";
                 if (int.TryParse(value, out var jobs) && jobs > 0 && jobs <= 100)
@@ -31,7 +31,7 @@ public static class ArgumentParser
                     throw new ArgumentException($"Valor invalido para {arg}: se espera un entero entre 1 y 100");
                 continue;
             }
-            if (arg.StartsWith("--format="))
+            if (arg.StartsWith("--format=", StringComparison.Ordinal))
             {
                 var value = arg["--format=".Length..];
                 if (value is "json" or "ndjson")
@@ -79,7 +79,7 @@ public static class ArgumentParser
                     cli = cli with { NoColor = true };
                     break;
                 default:
-                    if (arg.StartsWith("-"))
+                    if (arg.StartsWith('-'))
                         throw new ArgumentException($"Argumento desconocido: {arg}. Use --help para ver la ayuda.");
                     break;
             }

@@ -16,7 +16,7 @@ public class RestRequestConfig
     public string? Body { get; set; }
     public CertConfig? Cert { get; set; }
     public string? Output { get; set; }
-    public bool AppendOutput { get; set; } = false;
+    public bool AppendOutput { get; set; }
 
     [JsonPropertyName("timeout")]
     public int TimeoutInSeconds { get; set; } = 30;
@@ -47,7 +47,7 @@ public class RestRequestConfig
             Retries = defaults.Retries.Value;
         if (RetryDelayMilliseconds == 1000 && defaults.RetryDelayMilliseconds.HasValue)
             RetryDelayMilliseconds = defaults.RetryDelayMilliseconds.Value;
-        if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http"))
+        if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             Url = defaults.BaseUrl.TrimEnd('/') + "/" + Url.TrimStart('/');
     }
 

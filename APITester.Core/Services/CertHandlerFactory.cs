@@ -40,6 +40,9 @@ public static class CertHandlerFactory
 
     private static HttpClientHandler CreateHandler(CertConfig certConfig)
     {
+        if (string.IsNullOrEmpty(certConfig.Path))
+            throw new InvalidOperationException("El certificado no tiene una ruta configurada");
+
         try
         {
             var cert = string.IsNullOrEmpty(certConfig.Password)
