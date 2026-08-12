@@ -1,49 +1,48 @@
-## Build output
-bin/
-obj/
-out/
-
-## VS / VS Code
-.vs/
-.vscode/
-*.user
-*.suo
-
-## NuGet
-*.nupkg
-packages/
-project.lock.json
-
-## Rider / JetBrains
-.idea/
-*.iml
-
-## Test / coverage
-TestResults/
-coverage/
-*.trx
-
-## OS files
-.DS_Store
-Thumbs.db
-
-## Temporary
-*.tmp
-*.temp
-*.log
-
-## Secrets / env
+```
+# Environment files
 .env
 .env.local
-*.pfx
-*.key
-secrets.json
+*.env.*
 
-## Generated output
-usuarios.json
-rest-response.json
-*-response.json
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
 
-## Misc
+# Editors/IDEs
+.vscode/
+.idea/
+
+# Dependencies
 node_modules/
-opencode/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.julia/
+zig*/
+julia-*/
+
+# Build artifacts
+dist/
+build/
+target/
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
+
+# System files
+.DS_Store
+Thumbs.db
+coverage/
+htmlcov/
+.coverage
+.gradle/
+```
