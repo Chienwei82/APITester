@@ -2,9 +2,9 @@ namespace APITester.Core.Services;
 
 public class RetryPolicy
 {
-    public int MaxRetries { get; init; } = 0;
+    public int MaxRetries { get; init; }
     public int DelayMs { get; init; } = 1000;
-    public bool UseExponentialBackoff { get; init; } = false;
+    public bool UseExponentialBackoff { get; init; }
     public List<int>? RetryOnStatusCodes { get; init; }
 
     private static readonly ThreadLocal<Random> _random = new(() => new Random());

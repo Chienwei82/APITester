@@ -23,11 +23,13 @@ public static class JsonFormatter
         object outputData = results.Count == 1 ? results[0] : results;
 
         var json = JsonSerializer.Serialize(outputData, Options);
+        EnsureDirectoryExists(filePath);
         await File.WriteAllTextAsync(filePath, json, Encoding.UTF8).ConfigureAwait(false);
     }
 
     public static async Task SaveToFileNdjsonAsync(string filePath, List<ApiResponse> results)
     {
+        EnsureDirectoryExists(filePath);
         using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
 
         for (int i = 0; i < results.Count; i++)
@@ -42,6 +44,14 @@ public static class JsonFormatter
     public static async Task AppendToFileAsync(string filePath, ApiResponse result)
     {
         var json = JsonSerializer.Serialize(result, NdjsonOptions);
+        EnsureDirectoryExists(filePath);
         await File.AppendAllTextAsync(filePath, json + Environment.NewLine, Encoding.UTF8).ConfigureAwait(false);
+    }
+
+    private static void EnsureDirectoryExists(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
     }
 }

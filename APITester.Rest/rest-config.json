@@ -1,227 +1,198 @@
-# APITester REST - Ejemplos de Endpoints Públicos
-# Guarda este archivo como rest-config.yaml y ejecuta: dotnet run -- -c rest-config.yaml
-
-# ============================================
-# EJEMPLO 1: JSONPlaceholder (API fake REST)
-# ============================================
----
-name: "JSONPlaceholder - Obtener usuarios"
-url: "https://jsonplaceholder.typicode.com/users"
-method: GET
-output: "respuestas/usuarios.json"
-timeout: 30
-
----
-name: "JSONPlaceholder - Obtener posts"
-url: "https://jsonplaceholder.typicode.com/posts"
-method: GET
-query:
-  _limit: "5"
-output: "respuestas/posts.json"
-timeout: 30
-
----
-name: "JSONPlaceholder - Crear post (POST)"
-url: "https://jsonplaceholder.typicode.com/posts"
-method: POST
-headers:
-  Content-Type: "application/json"
-body: |
+[
   {
-    "title": "Mi nuevo post",
-    "body": "Este es el contenido del post",
-    "userId": 1
-  }
-output: "respuestas/post-creado.json"
-timeout: 30
-
----
-name: "JSONPlaceholder - Actualizar post (PUT)"
-url: "https://jsonplaceholder.typicode.com/posts/1"
-method: PUT
-headers:
-  Content-Type: "application/json"
-body: |
+    "name": "JSONPlaceholder - Obtener usuarios",
+    "url": "https://jsonplaceholder.typicode.com/users",
+    "method": "GET",
+    "output": "respuestas/usuarios.json",
+    "timeout": 30
+  },
   {
-    "id": 1,
-    "title": "Post actualizado",
-    "body": "Contenido modificado",
-    "userId": 1
-  }
-output: "respuestas/post-actualizado.json"
-timeout: 30
-
----
-name: "JSONPlaceholder - Patch parcial (PATCH)"
-url: "https://jsonplaceholder.typicode.com/posts/1"
-method: PATCH
-headers:
-  Content-Type: "application/json"
-body: |
+    "name": "JSONPlaceholder - Obtener posts",
+    "url": "https://jsonplaceholder.typicode.com/posts",
+    "method": "GET",
+    "query": {
+      "_limit": "5"
+    },
+    "output": "respuestas/posts.json",
+    "timeout": 30
+  },
   {
-    "title": "Titulo modificado con PATCH"
+    "name": "JSONPlaceholder - Crear post (POST)",
+    "url": "https://jsonplaceholder.typicode.com/posts",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"title\": \"Mi nuevo post\", \"body\": \"Este es el contenido del post\", \"userId\": 1}",
+    "output": "respuestas/post-creado.json",
+    "timeout": 30
+  },
+  {
+    "name": "JSONPlaceholder - Actualizar post (PUT)",
+    "url": "https://jsonplaceholder.typicode.com/posts/1",
+    "method": "PUT",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"id\": 1, \"title\": \"Post actualizado\", \"body\": \"Contenido modificado\", \"userId\": 1}",
+    "output": "respuestas/post-actualizado.json",
+    "timeout": 30
+  },
+  {
+    "name": "JSONPlaceholder - Patch parcial (PATCH)",
+    "url": "https://jsonplaceholder.typicode.com/posts/1",
+    "method": "PATCH",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"title\": \"Titulo modificado con PATCH\"}",
+    "output": "respuestas/post-patch.json",
+    "timeout": 30
+  },
+  {
+    "name": "JSONPlaceholder - Eliminar post (DELETE)",
+    "url": "https://jsonplaceholder.typicode.com/posts/1",
+    "method": "DELETE",
+    "output": "respuestas/post-eliminado.json",
+    "timeout": 30
+  },
+  {
+    "name": "HTTPBin - Echo GET",
+    "url": "https://httpbin.org/get",
+    "method": "GET",
+    "query": {
+      "nombre": "Juan",
+      "edad": "30"
+    },
+    "output": "respuestas/httpbin-get.json",
+    "timeout": 30
+  },
+  {
+    "name": "HTTPBin - Headers",
+    "url": "https://httpbin.org/headers",
+    "method": "GET",
+    "headers": {
+      "X-Custom-Header": "MiValorPersonalizado",
+      "X-API-Key": "mi-api-key-secreto"
+    },
+    "output": "respuestas/httpbin-headers.json",
+    "timeout": 30
+  },
+  {
+    "name": "HTTPBin - Status Codes (200)",
+    "url": "https://httpbin.org/status/200",
+    "method": "GET",
+    "output": "respuestas/httpbin-status-200.json",
+    "timeout": 30
+  },
+  {
+    "name": "HTTPBin - Status Codes (404)",
+    "url": "https://httpbin.org/status/404",
+    "method": "GET",
+    "output": "respuestas/httpbin-status-404.json",
+    "timeout": 30
+  },
+  {
+    "name": "GitHub - Info de repositorio (.NET)",
+    "url": "https://api.github.com/repos/dotnet/runtime",
+    "method": "GET",
+    "headers": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "APITester-Rest"
+    },
+    "output": "respuestas/github-repo.json",
+    "timeout": 30
+  },
+  {
+    "name": "GitHub - Usuarios populares",
+    "url": "https://api.github.com/users",
+    "method": "GET",
+    "headers": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "APITester-Rest"
+    },
+    "query": {
+      "since": "1",
+      "per_page": "5"
+    },
+    "output": "respuestas/github-usuarios.json",
+    "timeout": 30
+  },
+  {
+    "name": "RSS - BBC News (Mundo)",
+    "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "method": "GET",
+    "headers": {
+      "Accept": "application/rss+xml, application/xml, text/xml"
+    },
+    "output": "respuestas/rss-bbc.xml",
+    "timeout": 30
+  },
+  {
+    "name": "RSS - NASA Breaking News",
+    "url": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+    "method": "GET",
+    "headers": {
+      "Accept": "application/rss+xml, application/xml, text/xml"
+    },
+    "output": "respuestas/rss-nasa.xml",
+    "timeout": 30
+  },
+  {
+    "name": "Dog CEO - Imagen aleatoria de perro",
+    "url": "https://dog.ceo/api/breeds/image/random",
+    "method": "GET",
+    "output": "respuestas/dog-random.json",
+    "timeout": 30
+  },
+  {
+    "name": "Cat Facts - Dato curioso de gatos",
+    "url": "https://catfact.ninja/fact",
+    "method": "GET",
+    "output": "respuestas/cat-fact.json",
+    "timeout": 30
+  },
+  {
+    "name": "Chuck Norris - Joke aleatorio",
+    "url": "https://api.chucknorris.io/jokes/random",
+    "method": "GET",
+    "output": "respuestas/chuck-norris.json",
+    "timeout": 30
+  },
+  {
+    "name": "Google.com - Pagina principal",
+    "url": "https://www.google.com",
+    "method": "GET",
+    "headers": {
+      "Accept": "text/html,application/xhtml+xml",
+      "User-Agent": "Mozilla/5.0 APITester-Rest"
+    },
+    "output": "respuestas/google.html",
+    "timeout": 30
+  },
+  {
+    "name": "IPify - Mi IP publica",
+    "url": "https://api.ipify.org?format=json",
+    "method": "GET",
+    "output": "respuestas/mi-ip.json",
+    "timeout": 30
+  },
+  {
+    "name": "Random User Generator",
+    "url": "https://randomuser.me/api/",
+    "method": "GET",
+    "query": {
+      "results": "3",
+      "nat": "US,GB,ES"
+    },
+    "output": "respuestas/random-users.json",
+    "timeout": 30
+  },
+  {
+    "name": "Quotes API - Cita aleatoria",
+    "url": "https://dummyjson.com/quotes/random",
+    "method": "GET",
+    "output": "respuestas/quote-random.json",
+    "timeout": 30
   }
-output: "respuestas/post-patch.json"
-timeout: 30
-
----
-name: "JSONPlaceholder - Eliminar post (DELETE)"
-url: "https://jsonplaceholder.typicode.com/posts/1"
-method: DELETE
-output: "respuestas/post-eliminado.json"
-timeout: 30
-
-# ============================================
-# EJEMPLO 2: HTTPBin (Testing HTTP)
-# ============================================
----
-name: "HTTPBin - Echo GET"
-url: "https://httpbin.org/get"
-method: GET
-query:
-  nombre: "Juan"
-  edad: "30"
-output: "respuestas/httpbin-get.json"
-timeout: 30
-
----
-name: "HTTPBin - Headers"
-url: "https://httpbin.org/headers"
-method: GET
-headers:
-  X-Custom-Header: "MiValorPersonalizado"
-  X-API-Key: "mi-api-key-secreto"
-output: "respuestas/httpbin-headers.json"
-timeout: 30
-
----
-name: "HTTPBin - Status Codes (200)"
-url: "https://httpbin.org/status/200"
-method: GET
-output: "respuestas/httpbin-status-200.json"
-timeout: 30
-
----
-name: "HTTPBin - Status Codes (404)"
-url: "https://httpbin.org/status/404"
-method: GET
-output: "respuestas/httpbin-status-404.json"
-timeout: 30
-
----
-name: "HTTPBin - Delay (simula lentitud)"
-url: "https://httpbin.org/delay/2"
-method: GET
-output: "respuestas/httpbin-delay.json"
-timeout: 30
-
-# ============================================
-# EJEMPLO 3: GitHub Public API (Datos reales)
-# ============================================
----
-name: "GitHub - Info de repositorio (.NET)"
-url: "https://api.github.com/repos/dotnet/runtime"
-method: GET
-headers:
-  Accept: "application/vnd.github.v3+json"
-  User-Agent: "APITester-Rest"
-output: "respuestas/github-repo.json"
-timeout: 30
-
----
-name: "GitHub - Usuarios populares"
-url: "https://api.github.com/users"
-method: GET
-headers:
-  Accept: "application/vnd.github.v3+json"
-  User-Agent: "APITester-Rest"
-query:
-  since: "1"
-  per_page: "5"
-output: "respuestas/github-usuarios.json"
-timeout: 30
-
-# ============================================
-# EJEMPLO 4: RSS Feeds (XML)
-# ============================================
----
-name: "RSS - BBC News (Mundo)"
-url: "https://feeds.bbci.co.uk/news/world/rss.xml"
-method: GET
-headers:
-  Accept: "application/rss+xml, application/xml, text/xml"
-output: "respuestas/rss-bbc.xml"
-timeout: 30
-
----
-name: "RSS - NASA Breaking News"
-url: "https://www.nasa.gov/rss/dyn/breaking_news.rss"
-method: GET
-headers:
-  Accept: "application/rss+xml, application/xml, text/xml"
-output: "respuestas/rss-nasa.xml"
-timeout: 30
-
-# ============================================
-# EJEMPLO 5: APIs Divertidas
-# ============================================
----
-name: "Dog CEO - Imagen aleatoria de perro"
-url: "https://dog.ceo/api/breeds/image/random"
-method: GET
-output: "respuestas/dog-random.json"
-timeout: 30
-
----
-name: "Cat Facts - Dato curioso de gatos"
-url: "https://catfact.ninja/fact"
-method: GET
-output: "respuestas/cat-fact.json"
-timeout: 30
-
----
-name: "Chuck Norris - Joke aleatorio"
-url: "https://api.chucknorris.io/jokes/random"
-method: GET
-output: "respuestas/chuck-norris.json"
-timeout: 30
-
-# ============================================
-# EJEMPLO 6: Google.com (Solo GET básico)
-# ============================================
----
-name: "Google.com - Página principal"
-url: "https://www.google.com"
-method: GET
-headers:
-  Accept: "text/html,application/xhtml+xml"
-  User-Agent: "Mozilla/5.0 APITester-Rest"
-output: "respuestas/google.html"
-timeout: 30
-
-# ============================================
-# EJEMPLO 7: Otros servicios públicos
-# ============================================
----
-name: "IPify - Mi IP pública"
-url: "https://api.ipify.org?format=json"
-method: GET
-output: "respuestas/mi-ip.json"
-timeout: 30
-
----
-name: "Random User Generator"
-url: "https://randomuser.me/api/"
-method: GET
-query:
-  results: "3"
-  nat: "US,GB,ES"
-output: "respuestas/random-users.json"
-timeout: 30
-
----
-name: "Quotes API - Cita aleatoria"
-url: "https://dummyjson.com/quotes/random"
-method: GET
-output: "respuestas/quote-random.json"
-timeout: 30
+]

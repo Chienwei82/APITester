@@ -12,7 +12,11 @@ public class RestConfigLoaderTests : IDisposable
         Directory.CreateDirectory(_tempDir);
     }
 
-    public void Dispose() => Dispose(true);
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 
     protected virtual void Dispose(bool disposing)
     {

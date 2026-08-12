@@ -12,8 +12,7 @@ Console.CancelKeyPress += (_, e) =>
 
 try
 {
-    var orchestrator = new RestOrchestrator();
-    return await orchestrator.RunAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
+    return await RestOrchestrator.RunAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
 }
 catch (OperationCanceledException)
 {

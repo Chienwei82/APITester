@@ -9,14 +9,7 @@ namespace APITester.Rest;
 
 public class RestOrchestrator
 {
-    private readonly TextWriter _out;
-
-    public RestOrchestrator(TextWriter? outWriter = null)
-    {
-        _out = outWriter ?? Console.Out;
-    }
-
-    public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
+    public static async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
         var cliArgs = ArgumentParser.Parse(args, "rest-config.json");
 
@@ -61,7 +54,7 @@ public class RestOrchestrator
         return await ExecuteRequestsAsync(requests, cliArgs, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<int> ExecuteRequestsAsync(
+    private static async Task<int> ExecuteRequestsAsync(
         List<RestRequestConfig> requests,
         CliArgs cliArgs,
         CancellationToken cancellationToken)

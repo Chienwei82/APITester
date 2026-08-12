@@ -35,6 +35,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         {
             _httpClient.Dispose();
         }
+        GC.SuppressFinalize(this);
     }
 
     public async Task<ApiResponse> ExecuteAsync(RestRequestConfig config, CancellationToken cancellationToken = default)

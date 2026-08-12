@@ -1,22 +1,8 @@
 # APITester
 
-[![.NET CI](https://github.com/Chienwei82/APITester/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Chienwei82/APITester/actions/workflows/dotnet.yml)
-[![Release](https://github.com/Chienwei82/APITester/actions/workflows/release.yml/badge.svg)](https://github.com/Chienwei82/APITester/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 Herramienta portable de linea de comandos para ejecutar requests HTTP contra APIs REST y guardar las respuestas en un archivo JSON.
 
-Lee una configuracion en JSON (uno o varios requests), los ejecuta en paralelo con un limite de concurrencia, y produce un archivo con el detalle de cada respuesta: status code, headers, body, tiempo de respuesta, tamano, y headers enviados en el request.
-
----
-
-## Instalacion
-
-```bash
-git clone <repo>
-cd APITester
-dotnet build
-```
+Lee una configuracion en JSON (uno o varios requests), los ejecuta en paralelo con un limite de concurrencia configurable, y produce un archivo con el detalle de cada respuesta: status code, headers, body, tiempo de respuesta, tamano, y headers enviados en el request.
 
 Requiere .NET SDK 10.0+ ([descargar](https://dotnet.microsoft.com/download)).
 
@@ -24,33 +10,57 @@ Requiere .NET SDK 10.0+ ([descargar](https://dotnet.microsoft.com/download)).
 
 ## Uso rapido
 
-El proyecto incluye un ejemplo funcional que consulta JSONPlaceholder:
-
 ```bash
 cd APITester.Rest
 dotnet run
 ```
 
-Esto usa `rest-config.json` por defecto, hace un GET a `https://jsonplaceholder.typicode.com/users` y guarda el resultado en `usuarios.json`.
+Usa `rest-config.json` por defecto y ejecuta los requests definidos ahi, guardando cada respuesta en su archivo `output`.
 
 ### Linea de comandos
 
 ```
-dotnet run -- -c archivo.json [-o salida.json] [-v] [-h]
+dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
 ```
 
 | Argumento | Descripcion |
 |---|---|
-| `-c`, `--config` | Ruta al archivo JSON con la configuracion de requests |
-| `-o`, `--output` | Archivo de salida (opcional, si no se especifica usa el `output` del primer request) |
+| `-c`, `--config <archivo>` | Ruta al archivo JSON con la configuracion de requests (default: `rest-config.json`). Soporta `--config=<archivo>` |
+| `-o`, `--output <archivo>` | Archivo de salida por defecto (si un request no define `output`). Soporta `--output=<archivo>` |
+| `-j`, `--jobs <N>` | Concurrencia maxima, entre 1 y 100 (default: 4). Aliases: `--concurrency`, `--jobs=<N>` |
 | `-v`, `--verbose` | Muestra detalles adicionales (query, body, certificado, reintentos) |
+| `--format json\|ndjson` | Formato de salida: `json` (indentado) o `ndjson` (una linea por respuesta) |
+| `--strict` | Fallar si hay advertencias de validacion |
+| `--quiet` | Solo mostrar errores y el resumen final |
+| `--no-color` | Deshabilitar salida con colores |
 | `-h`, `--help` | Muestra la ayuda |
+
+---
+
+## Ejemplo minimo
+
+Un `rest-config.json` minimo con un solo request:
+
+```json
+{
+  "name": "Obtener usuarios",
+  "url": "https://jsonplaceholder.typicode.com/users",
+  "method": "GET",
+  "output": "respuestas/usuarios.json"
+}
+```
+
+Ejecutalo asi:
+
+```bash
+dotnet run -- -c rest-config.json
+```
 
 ---
 
 ## Formato del archivo JSON
 
-Puede ser un request unico o una lista de requests.
+Puede ser un request unico, una lista de requests, o un objeto con `defaults` y `requests`.
 
 ### Request simple
 
@@ -83,15 +93,40 @@ Puede ser un request unico o una lista de requests.
     },
     "body": "{\"name\": \"Juan Perez\", \"email\": \"juan@example.com\"}",
     "output": "crear-usuario.json"
-  },
-  {
-    "name": "Eliminar usuario",
-    "url": "https://api.ejemplo.com/users/123",
-    "method": "DELETE",
-    "output": "eliminar.json"
   }
 ]
 ```
+
+### Defaults compartidos
+
+```json
+{
+  "defaults": {
+    "baseUrl": "https://api.ejemplo.com",
+    "headers": {
+      "Authorization": "Bearer ${TOKEN_API}"
+    },
+    "timeout": 15,
+    "retries": 2
+  },
+  "requests": [
+    {
+      "name": "Usuarios",
+      "url": "/users",
+      "method": "GET"
+    },
+    {
+      "name": "Productos",
+      "url": "/products",
+      "method": "GET"
+    }
+  ]
+}
+```
+
+- `baseUrl`: las URLs relativas de los requests se resuelven contra esta base
+- `headers` / `query`: se aplican a los requests que no definan los propios
+- `timeout`, `retries`, `retryDelayMs`: se aplican a los requests que usen el valor por defecto
 
 ### Campos disponibles
 
@@ -103,12 +138,15 @@ Puede ser un request unico o una lista de requests.
 | `headers` | mapa string:string | no | — | Headers HTTP |
 | `query` | mapa string:string | no | — | Parametros de query string |
 | `body` | string | no | — | Cuerpo del request (para POST/PUT/PATCH) |
-| `cert.path` | string | no | — | Ruta a un certificado cliente (.pfx) |
-| `cert.password` | string | no | — | Contrasena del certificado |
 | `output` | string | no | `rest-response.json` | Archivo donde guardar la respuesta |
+| `appendOutput` | bool | no | `false` | Agregar la respuesta al final del archivo en vez de sobrescribirlo |
 | `timeout` | int | no | `30` | Timeout en segundos (max 300) |
 | `retries` | int | no | `0` | Cantidad de reintentos ante fallos transitorios |
 | `retryDelayMs` | int | no | `1000` | Espera entre reintentos en milisegundos |
+| `retryExponentialBackoff` | bool | no | `false` | Usar backoff exponencial (con jitter) en los reintentos |
+| `retryOnStatusCodes` | lista de int | no | — | Reintentar tambien cuando la respuesta tenga estos status codes |
+| `cert.path` | string | no | — | Ruta a un certificado cliente (.pfx) |
+| `cert.password` | string | no | — | Contrasena del certificado |
 
 ### Validaciones
 
@@ -116,21 +154,22 @@ Puede ser un request unico o una lista de requests.
 - `timeout`: entre 1 y 300 segundos
 - `method`: solo metodos HTTP estandar
 - `cert.path`: si se especifica, el archivo debe existir en disco
+- `body`: no se permite en metodos sin cuerpo (GET, DELETE, HEAD, OPTIONS)
 
-Los errores de validacion aparecen como `ADVERTENCIA` en consola pero la ejecucion continua (aunque puede fallar en runtime si los datos son invalidos).
+Las advertencias de validacion aparecen como `ADVERTENCIA` en consola y la ejecucion continua, salvo con `--strict`.
 
 ---
 
 ## Variables de entorno
 
-Se puede usar la sintaxis `${NOMBRE_VAR}` en cualquier campo del JSON y APITester la reemplaza con el valor de la variable de entorno correspondiente. Si la variable no existe, se deja el texto original.
+Se puede usar la sintaxis `${NOMBRE_VAR}` en cualquier campo del JSON y APITester la reemplaza con el valor de la variable de entorno correspondiente. Soporta default: `${VAR:-default}`.
 
 ```json
 {
   "headers": {
     "Authorization": "Bearer ${TOKEN_API}"
   },
-  "url": "https://${HOST}/api/v1/users"
+  "url": "https://${HOST:-localhost}:8080/api/v1/users"
 }
 ```
 
@@ -157,9 +196,9 @@ El resultado se guarda en un archivo JSON con la siguiente estructura:
     "StatusText": "OK",
     "Headers": {
       "Content-Type": "application/json",
-      ...
+      "...": "..."
     },
-    "Body": { ... },
+    "Body": { "...": "..." },
     "BodyRaw": "{\n  ...\n}",
     "TimeMs": 430,
     "SizeBytes": 5645
@@ -167,11 +206,11 @@ El resultado se guarda en un archivo JSON con la siguiente estructura:
 }
 ```
 
-Si el request falla (error de red, timeout, etc.), el campo `Error` contiene el mensaje y `Response` es `null`.
+- Si el request falla (error de red, timeout, etc.), el campo `Error` contiene el mensaje y `Response` es `null`.
+- Si la respuesta es JSON valido, `Body` se parsea como objeto JSON. El texto crudo siempre esta disponible en `BodyRaw`.
+- `RequestHeaders` contiene los headers que fueron enviados en el request (incluyendo los resueltos desde variables de entorno).
 
-Si la respuesta es JSON valido, `Body` se parsea como objeto JSON. El texto crudo siempre esta disponible en `BodyRaw`.
-
-El campo `RequestHeaders` contiene los headers que fueron enviados en el request (incluyendo los que provienen de variables de entorno resueltas).
+Los directorios de salida (por ejemplo `respuestas/`) se crean automaticamente si no existen.
 
 ---
 
@@ -188,7 +227,7 @@ Para APIs que requieren autenticacion mutua TLS (mTLS):
 }
 ```
 
-Soporta archivos `.pfx` (PKCS#12). Si solo se necesita un certificado sin contrasena, se puede omitir `password`.
+Soporta archivos `.pfx` (PKCS#12). Si solo se necesita un certificado sin contrasena, se puede omitir `password`. Los handlers se cachean por certificado.
 
 ---
 
@@ -199,11 +238,13 @@ Cuando un request falla por `HttpRequestException`, `TaskCanceledException` o `O
 ```json
 {
   "retries": 3,
-  "retryDelayMs": 2000
+  "retryDelayMs": 2000,
+  "retryExponentialBackoff": true,
+  "retryOnStatusCodes": [429, 500, 502, 503, 504]
 }
 ```
 
-Esto reintenta hasta 3 veces con 2 segundos de espera entre cada intento. Si todos los intentos fallan, se devuelve el error del ultimo intento.
+Si todos los intentos fallan, se devuelve el error del ultimo intento.
 
 ---
 
@@ -217,8 +258,8 @@ APITester.slnx
 │                               GenericConfigLoader, JsonFormatter, RetryPolicy, etc.
 ├── APITester.Rest           ← Implementacion REST
 │   ├── Program.cs           ← Punto de entrada
-│   ├── Models/              ← RestRequestConfig
-│   └── Services/            ← HttpExecutor, RestConfigLoader
+│   ├── Models/              ← RestRequestConfig, RestConfigDefaults
+│   └── Services/            ← HttpExecutor, RestConfigLoader, RequestExecutor
 └── APITester.Tests          ← Tests unitarios
 ```
 
@@ -226,54 +267,4 @@ El diseno separa el nucleo (`Core`) del protocolo especifico (`Rest`), lo que pe
 
 ---
 
-## Ejecucion paralela
-
-Los requests se ejecutan en paralelo con un limite de concurrencia de hasta 4 simultaneos. Esto reduce el tiempo total cuando se procesan multiples endpoints independientes. El orden de los resultados en el archivo JSON de salida se preserva segun el orden definido en el archivo de configuracion.
-
----
-
-## Ejemplos
-
-### GET con query params y verbose
-
-```bash
-dotnet run -- -c config.json -v
-```
-
-### POST con body y timeout personalizado
-
-```json
-{
-  "name": "Crear recurso",
-  "url": "https://api.ejemplo.com/posts",
-  "method": "POST",
-  "headers": {
-    "Content-Type": "application/json"
-  },
-  "body": "{\"title\": \"Ejemplo\", \"body\": \"Contenido de prueba\", \"userId\": 1}",
-  "timeout": 15,
-  "output": "crear-post.json"
-}
-```
-
-### Multiples requests
-
-```json
-[
-  {
-    "name": "Health check",
-    "url": "https://api.ejemplo.com/health",
-    "method": "GET",
-    "output": "health.json"
-  },
-  {
-    "name": "Listar productos",
-    "url": "https://api.ejemplo.com/productos",
-    "method": "GET",
-    "headers": {
-      "Authorization": "Bearer ${TOKEN}"
-    },
-    "output": "productos.json"
-  }
-]
-```
+Repositorio: https://github.com/Chienwei82/APITester
