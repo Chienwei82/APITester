@@ -5,37 +5,48 @@ using APITester.Core.Models;
 
 namespace APITester.Core.Services;
 
+/// <summary>
+/// Crea y cachea clientes HTTP con certificado cliente TLS.
+/// El HttpClient se cachea por certificado para reutilizar conexiones TLS y
+/// evitar filtrar sockets/handlers por cada request.
+/// </summary>
 public static class CertHandlerFactory
 {
     private const int MaxCacheSize = 10;
-    private static readonly ConcurrentDictionary<string, HttpClientHandler> _handlerCache = new();
+    private static readonly ConcurrentDictionary<string, HttpClient> _clientCache = new();
     private static readonly ConcurrentQueue<string> _accessOrder = new();
 
-    public static HttpClientHandler? Create(CertConfig? certConfig)
+    public static HttpClient? Create(CertConfig? certConfig)
     {
         if (certConfig?.Path is null) return null;
 
         var cacheKey = $"{certConfig.Path}|{certConfig.Password ?? ""}";
 
-        var handler = _handlerCache.GetOrAdd(cacheKey, key =>
+        var client = _clientCache.GetOrAdd(cacheKey, key =>
         {
             EvictIfNeeded();
             _accessOrder.Enqueue(key);
-            return CreateHandler(certConfig);
+            return CreateClient(certConfig);
         });
 
-        return handler;
+        return client;
     }
 
     private static void EvictIfNeeded()
     {
-        while (_handlerCache.Count >= MaxCacheSize && _accessOrder.TryDequeue(out var oldest))
+        while (_clientCache.Count >= MaxCacheSize && _accessOrder.TryDequeue(out var oldest))
         {
-            if (_handlerCache.TryRemove(oldest, out var removed))
+            if (_clientCache.TryRemove(oldest, out var removed))
             {
                 removed.Dispose();
             }
         }
+    }
+
+    private static HttpClient CreateClient(CertConfig certConfig)
+    {
+        var handler = CreateHandler(certConfig);
+        return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     private static HttpClientHandler CreateHandler(CertConfig certConfig)
@@ -65,11 +76,11 @@ public static class CertHandlerFactory
 
     public static void ClearCache()
     {
-        foreach (var kv in _handlerCache)
+        foreach (var kv in _clientCache)
         {
             kv.Value.Dispose();
         }
-        _handlerCache.Clear();
+        _clientCache.Clear();
         _accessOrder.Clear();
     }
 }

@@ -55,8 +55,6 @@ public static class RestConfigLoader
                     var configFile = JsonSerializer.Deserialize<RestConfigFile>(json, JsonOptions);
                     if (configFile is not null)
                     {
-                        RestRequestConfig.GlobalDefaults = configFile.Defaults;
-
                         if (configFile.Requests is { Count: > 0 })
                         {
                             foreach (var req in configFile.Requests)
