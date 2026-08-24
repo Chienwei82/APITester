@@ -18,18 +18,17 @@ public class RestOrchestrator
         }
         catch (ArgumentException ex)
         {
-            ConsolePresenter.PrintFatalError(ex.Message);
+            new ConsolePresenter().PrintFatalError(ex.Message);
             return 1;
         }
 
+        var presenter = new ConsolePresenter(!cliArgs.Quiet, !cliArgs.NoColor);
+
         if (cliArgs.ShowHelp)
         {
-            ConsolePresenter.PrintHelp("REST", "rest-config.json");
+            presenter.PrintHelp("REST", "rest-config.json");
             return 0;
         }
-
-        ConsolePresenter.SetShowProgress(!cliArgs.Quiet);
-        ConsolePresenter.SetUseColors(!cliArgs.NoColor);
 
         List<RestRequestConfig> requests;
         try
@@ -38,7 +37,7 @@ public class RestOrchestrator
         }
         catch (Exception ex)
         {
-            ConsolePresenter.PrintFatalError(ex.Message);
+            presenter.PrintFatalError(ex.Message);
             return 1;
         }
 
@@ -46,32 +45,33 @@ public class RestOrchestrator
             .SelectMany((r, i) => r.Validate().Select(w => $"[{i + 1}] {w}"))
             .ToList();
         if (warnings.Count > 0)
-            ConsolePresenter.PrintValidationWarnings(warnings);
+            presenter.PrintValidationWarnings(warnings);
 
         if (cliArgs.StrictValidation && warnings.Count > 0)
         {
-            ConsolePresenter.PrintFatalError("Modo estricto: hay advertencias de validacion. La ejecucion se detiene.");
+            presenter.PrintFatalError("Modo estricto: hay advertencias de validacion. La ejecucion se detiene.");
             return 1;
         }
 
         if (requests.Count == 0)
         {
-            ConsolePresenter.PrintFatalError("No se encontraron requests en el archivo de configuracion");
+            presenter.PrintFatalError("No se encontraron requests en el archivo de configuracion");
             return 1;
         }
 
-        return await ExecuteRequestsAsync(requests, cliArgs, cancellationToken).ConfigureAwait(false);
+        return await ExecuteRequestsAsync(requests, cliArgs, presenter, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> ExecuteRequestsAsync(
         List<RestRequestConfig> requests,
         CliArgs cliArgs,
+        ConsolePresenter presenter,
         CancellationToken cancellationToken)
     {
         var totalSw = Stopwatch.StartNew();
 
         using var executor = new HttpExecutor();
-        var requestExecutor = new RequestExecutor(executor, cliArgs.MaxConcurrency, cliArgs.Verbose);
+        var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.MaxConcurrency, cliArgs.Verbose);
 
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
@@ -79,7 +79,7 @@ public class RestOrchestrator
         var defaultOutput = cliArgs.OutputFile ?? "rest-response.json";
         var plan = BuildWritePlan(results, requests, defaultOutput);
 
-        if (cliArgs.OutputFormat == "ndjson")
+        if (cliArgs.OutputFormat == OutputFormat.Ndjson)
         {
             foreach (var (path, group) in plan.Overwrite)
                 await JsonFormatter.SaveToFileNdjsonAsync(path, group).ConfigureAwait(false);
@@ -102,7 +102,7 @@ public class RestOrchestrator
             FailedRequests = results.Count(r => r.Error is not null)
         };
 
-        ConsolePresenter.PrintSummary(summary);
+        presenter.PrintSummary(summary);
 
         return summary.FailedRequests > 0 ? 1 : 0;
     }

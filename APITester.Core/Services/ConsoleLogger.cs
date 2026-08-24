@@ -9,17 +9,8 @@ public class ConsoleLogger : ILogger
         _writer = writer ?? Console.Out;
     }
 
-    public void Info(string message) =>
-        WriteLine($"[INFO] {message}", ConsoleColor.White);
-
     public void Warn(string message) =>
         WriteLine($"[ADVERTENCIA] {message}", ConsoleColor.Yellow);
-
-    public void LogError(string message) =>
-        WriteLine($"[ERROR] {message}", ConsoleColor.Red);
-
-    public void Debug(string message) =>
-        WriteLine($"[DEBUG] {message}", ConsoleColor.DarkGray);
 
     private void WriteLine(string text, ConsoleColor color)
     {

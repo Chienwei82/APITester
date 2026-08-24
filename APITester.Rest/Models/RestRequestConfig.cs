@@ -31,6 +31,9 @@ public class RestRequestConfig
     [JsonPropertyName("retryOnStatusCodes")]
     public List<int>? RetryOnStatusCodes { get; set; }
 
+    [JsonPropertyName("maxBodyBytes")]
+    public long? MaxBodyBytes { get; set; }
+
     public void ApplyDefaults(RestConfigDefaults? defaults)
     {
         if (defaults is null) return;
@@ -75,6 +78,9 @@ public class RestRequestConfig
 
     /// <summary>Efectivo delay entre reintentos, aplicando el default cuando no se especifico.</summary>
     public int EffectiveRetryDelayMilliseconds => RetryDelayMilliseconds ?? 1000;
+
+    /// <summary>Limite de bytes a leer del body de la respuesta (default 4MB).</summary>
+    public long EffectiveMaxBodyBytes => MaxBodyBytes ?? 4 * 1024 * 1024;
 
     private static bool HasBody(string method) =>
         method.ToUpperInvariant() is "POST" or "PUT" or "PATCH";

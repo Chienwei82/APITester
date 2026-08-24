@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using APITester.Core.Models;
@@ -8,13 +7,16 @@ namespace APITester.Core.Services;
 /// <summary>
 /// Crea y cachea clientes HTTP con certificado cliente TLS.
 /// El HttpClient se cachea por certificado para reutilizar conexiones TLS y
-/// evitar filtrar sockets/handlers por cada request.
+/// evitar filtrar sockets por cada request. La cache es LRU de verdad: cada
+/// acceso reciente mueve la clave al final del orden de uso, y cuando se
+/// supera el tamaño maximo se desaloja la entrada usada menos recientemente.
 /// </summary>
 public static class CertHandlerFactory
 {
     private const int MaxCacheSize = 10;
-    private static readonly ConcurrentDictionary<string, HttpClient> _clientCache = new();
-    private static readonly ConcurrentQueue<string> _accessOrder = new();
+    private static readonly object Gate = new();
+    private static readonly Dictionary<string, HttpClient> _cache = new();
+    private static readonly LinkedList<string> _accessOrder = new();
 
     public static HttpClient? Create(CertConfig? certConfig)
     {
@@ -22,21 +24,31 @@ public static class CertHandlerFactory
 
         var cacheKey = $"{certConfig.Path}|{certConfig.Password ?? ""}";
 
-        var client = _clientCache.GetOrAdd(cacheKey, key =>
+        lock (Gate)
         {
-            EvictIfNeeded();
-            _accessOrder.Enqueue(key);
-            return CreateClient(certConfig);
-        });
+            if (_cache.TryGetValue(cacheKey, out var existing))
+            {
+                // Marcar como usada recientemente: mover al final del orden.
+                _accessOrder.Remove(cacheKey);
+                _accessOrder.AddLast(cacheKey);
+                return existing;
+            }
 
-        return client;
+            var client = CreateClient(certConfig);
+            _cache[cacheKey] = client;
+            _accessOrder.AddLast(cacheKey);
+            EvictIfNeeded();
+            return client;
+        }
     }
 
     private static void EvictIfNeeded()
     {
-        while (_clientCache.Count >= MaxCacheSize && _accessOrder.TryDequeue(out var oldest))
+        while (_cache.Count > MaxCacheSize && _accessOrder.First is not null)
         {
-            if (_clientCache.TryRemove(oldest, out var removed))
+            var oldest = _accessOrder.First.Value;
+            _accessOrder.RemoveFirst();
+            if (_cache.Remove(oldest, out var removed))
             {
                 removed.Dispose();
             }
@@ -44,12 +56,6 @@ public static class CertHandlerFactory
     }
 
     private static HttpClient CreateClient(CertConfig certConfig)
-    {
-        var handler = CreateHandler(certConfig);
-        return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-    }
-
-    private static HttpClientHandler CreateHandler(CertConfig certConfig)
     {
         if (string.IsNullOrEmpty(certConfig.Path))
             throw new InvalidOperationException("El certificado no tiene una ruta configurada");
@@ -60,7 +66,8 @@ public static class CertHandlerFactory
                 ? X509CertificateLoader.LoadCertificateFromFile(certConfig.Path)
                 : X509CertificateLoader.LoadPkcs12FromFile(certConfig.Path, certConfig.Password);
 
-            return new HttpClientHandler { ClientCertificates = { cert } };
+            var handler = new HttpClientHandler { ClientCertificates = { cert } };
+            return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         }
         catch (CryptographicException ex)
         {
@@ -76,11 +83,14 @@ public static class CertHandlerFactory
 
     public static void ClearCache()
     {
-        foreach (var kv in _clientCache)
+        lock (Gate)
         {
-            kv.Value.Dispose();
+            foreach (var client in _cache.Values)
+            {
+                client.Dispose();
+            }
+            _cache.Clear();
+            _accessOrder.Clear();
         }
-        _clientCache.Clear();
-        _accessOrder.Clear();
     }
 }

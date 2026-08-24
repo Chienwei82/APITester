@@ -6,7 +6,14 @@ namespace APITester.Rest.Services;
 
 public static class RestConfigLoader
 {
-    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+    /// <summary>
+    /// Loader generico reuse que resuelve los casos "array de requests" y
+    /// "request unico". RestConfigLoader solo agrega la variante propia REST:
+    /// el objeto con "defaults" + "requests".
+    /// </summary>
+    private static readonly GenericConfigLoader<RestRequestConfig> GenericLoader = new(
+        cfg => cfg.Url is not null,
+        singleKeyField: "url");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -18,87 +25,48 @@ public static class RestConfigLoader
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"No se encuentra '{filePath}'");
 
-        var fileInfo = new FileInfo(filePath);
-        if (fileInfo.Length > MaxFileSizeBytes)
-            throw new InvalidDataException(
-                $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
-
         var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(json))
             throw new InvalidDataException("JSON vacio");
 
-        JsonDocument doc;
-        try
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // Objeto con "defaults"/"requests"/"request" => estructura de archivo REST.
+        if (root.ValueKind == JsonValueKind.Object)
         {
-            doc = JsonDocument.Parse(json);
+            var isConfigFile = root.TryGetProperty("defaults", out _)
+                            || root.TryGetProperty("requests", out _)
+                            || root.TryGetProperty("request", out _);
+            if (isConfigFile)
+                return LoadFromConfigFile(json);
         }
-        catch (JsonException ex)
+
+        // Caso array o request-unico: lo resuelve el loader generico.
+        return await GenericLoader.LoadAsync(filePath).ConfigureAwait(false);
+    }
+
+    private static List<RestRequestConfig> LoadFromConfigFile(string json)
+    {
+        var configFile = JsonSerializer.Deserialize<RestConfigFile>(json, JsonOptions)
+            ?? throw new InvalidDataException(
+                "JSON sin requests. Usa 'url' para uno o '[{ \"url\": ... }]' para varios.");
+
+        if (configFile.Requests is { Count: > 0 })
         {
-            throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
+            foreach (var req in configFile.Requests)
+                req.ApplyDefaults(configFile.Defaults);
+            return configFile.Requests;
         }
 
-        using (doc)
+        if (configFile.Request is not null)
         {
-            var root = doc.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                return await LoadFromArray(json).ConfigureAwait(false);
-            }
-
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                // Try as RestConfigFile (with defaults/requests structure)
-                try
-                {
-                    var configFile = JsonSerializer.Deserialize<RestConfigFile>(json, JsonOptions);
-                    if (configFile is not null)
-                    {
-                        if (configFile.Requests is { Count: > 0 })
-                        {
-                            foreach (var req in configFile.Requests)
-                                req.ApplyDefaults(configFile.Defaults);
-                            return configFile.Requests;
-                        }
-                    }
-                }
-                catch (JsonException)
-                {
-                    // Not a RestConfigFile structure, try as single request
-                }
-
-                // Try as single request
-                try
-                {
-                    var single = JsonSerializer.Deserialize<RestRequestConfig>(json, JsonOptions);
-                    if (single is not null && single.Url is not null)
-                        return [single];
-                }
-                catch (JsonException ex)
-                {
-                    throw new InvalidDataException($"Error deserializando JSON como objeto: {ex.Message}", ex);
-                }
-            }
+            configFile.Request.ApplyDefaults(configFile.Defaults);
+            return [configFile.Request];
         }
 
         throw new InvalidDataException(
             "JSON sin requests. Usa 'url' para uno o '[{ \"url\": ... }]' para varios.");
-    }
-
-    private static async Task<List<RestRequestConfig>> LoadFromArray(string json)
-    {
-        try
-        {
-            var asArray = JsonSerializer.Deserialize<List<RestRequestConfig>>(json, JsonOptions);
-            if (asArray is { Count: > 0 })
-                return asArray;
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException($"Error deserializando JSON como lista: {ex.Message}", ex);
-        }
-
-        throw new InvalidDataException("Array JSON vacio o invalido");
     }
 }
