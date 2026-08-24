@@ -281,6 +281,48 @@ public class HttpExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_LargeBody_IsTruncatedAtMaxBodyBytes()
+    {
+        var bigBody = new string('a', 2048);
+        var (executor, _) = CreateExecutor(HttpStatusCode.OK, bigBody);
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/large",
+            Method = "GET",
+            MaxBodyBytes = 1024
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.Null(result.Error);
+        Assert.NotNull(result.Response);
+        Assert.NotNull(result.Response.BodyRaw);
+        Assert.Equal(1024, result.Response.BodyRaw.Length);
+        // El tamano reportado es el real de la respuesta, no el truncado.
+        Assert.Equal(2048, result.Response.SizeBytes);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SmallBody_NotTruncated()
+    {
+        var (executor, _) = CreateExecutor(HttpStatusCode.OK, "{\"ok\": true}");
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/small",
+            Method = "GET"
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Response);
+        Assert.NotNull(result.Response.Body);
+        Assert.NotNull(result.Response.BodyRaw);
+        Assert.True(result.Response.BodyRaw.Length > 0);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Timeout_ReturnsError()
     {
         // Use a handler that never completes, so the timeout triggers

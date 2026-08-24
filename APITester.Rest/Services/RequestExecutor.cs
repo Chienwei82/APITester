@@ -12,10 +12,12 @@ public class RequestExecutor
     private readonly HttpExecutor _executor;
     private readonly int _maxConcurrency;
     private readonly bool _verbose;
+    private readonly ConsolePresenter _presenter;
 
-    public RequestExecutor(HttpExecutor executor, int maxConcurrency, bool verbose)
+    public RequestExecutor(HttpExecutor executor, ConsolePresenter presenter, int maxConcurrency, bool verbose)
     {
         _executor = executor;
+        _presenter = presenter;
         _maxConcurrency = maxConcurrency;
         _verbose = verbose;
     }
@@ -33,17 +35,17 @@ public class RequestExecutor
             try
             {
                 var label = config.Name ?? $"{config.Method} {config.Url}";
-                ConsolePresenter.PrintRequestHeader(label, i, requests.Count);
+                _presenter.PrintRequestHeader(label, i, requests.Count);
 
                 var result = await _executor.ExecuteAsync(config, cancellationToken).ConfigureAwait(false);
-                ConsolePresenter.PrintResponseSummary(result);
+                _presenter.PrintResponseSummary(result);
 
                 if (_verbose)
                 {
-                    ConsolePresenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
-                    ConsolePresenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
-                    ConsolePresenter.PrintVerboseLine("Cert", config.Cert?.Path);
-                    ConsolePresenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
+                    _presenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
+                    _presenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
+                    _presenter.PrintVerboseLine("Cert", config.Cert?.Path);
+                    _presenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
                 }
 
                 return (index: i, result);
@@ -52,7 +54,7 @@ public class RequestExecutor
             {
                 semaphore.Release();
                 var completed = Interlocked.Increment(ref completedCount);
-                ConsolePresenter.PrintProgress(completed, requests.Count);
+                _presenter.PrintProgress(completed, requests.Count);
             }
         });
 

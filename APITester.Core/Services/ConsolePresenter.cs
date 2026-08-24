@@ -1,20 +1,33 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
 using APITester.Core.Models;
 
 namespace APITester.Core.Services;
 
-public static class ConsolePresenter
+/// <summary>
+/// Presenta la salida en consola. El estado mutable (progreso, conteos, color)
+/// es por-instancia para cada ejecucion, de modo que no haya estado global
+/// compartido entre runs. El <see cref="OutputLock"/> se mantiene estatico y
+/// compartido por todos los presenters/loggers para que la secuencia
+/// cambio-de-color/escritura/reset sea atomica entre hilos.
+/// </summary>
+[SuppressMessage("Performance", "CA1822", Justification = "Metodos de UI agrupados en el presenter por cohesion de obra")]
+public sealed class ConsolePresenter
 {
-    /// <summary>Lock compartido para toda la salida en consola,
-    /// de modo que la secuencia cambio-de-color/escritura/reset sea atomica
-    /// incluso cuando se mezcla ConsoleLogger con ConsolePresenter.</summary>
     public static readonly object OutputLock = new();
-    private static int _completedCount;
-    private static int _totalCount;
-    private static bool _showProgress = true;
-    private static bool _useColors = true;
 
-    public static void PrintRequestHeader(string label, int index, int total)
+    private int _completedCount;
+    private int _totalCount;
+    private readonly bool _showProgress;
+    private readonly bool _useColors;
+
+    public ConsolePresenter(bool showProgress = true, bool useColors = true)
+    {
+        _showProgress = showProgress;
+        _useColors = useColors;
+    }
+
+    public void PrintRequestHeader(string label, int index, int total)
     {
         lock (OutputLock)
         {
@@ -41,17 +54,7 @@ public static class ConsolePresenter
         }
     }
 
-    public static void SetShowProgress(bool show)
-    {
-        _showProgress = show;
-    }
-
-    public static void SetUseColors(bool useColors)
-    {
-        _useColors = useColors;
-    }
-
-    public static void PrintResponseSummary(ApiResponse response)
+    public void PrintResponseSummary(ApiResponse response)
     {
         if (response.Error is not null)
         {
@@ -74,7 +77,7 @@ public static class ConsolePresenter
             color);
     }
 
-    public static void PrintProgress(int completed, int total)
+    public void PrintProgress(int completed, int total)
     {
         lock (OutputLock)
         {
@@ -86,7 +89,7 @@ public static class ConsolePresenter
         }
     }
 
-    private static void PrintProgressBar(int completed, int total)
+    private void PrintProgressBar(int completed, int total)
     {
         if (total <= 1) return;
 
@@ -99,7 +102,7 @@ public static class ConsolePresenter
             Console.WriteLine();
     }
 
-    public static void PrintSummary(ExecutionSummary summary)
+    public void PrintSummary(ExecutionSummary summary)
     {
         lock (OutputLock)
         {
@@ -109,7 +112,7 @@ public static class ConsolePresenter
         }
     }
 
-    public static void PrintFatalError(string message)
+    public void PrintFatalError(string message)
     {
         lock (OutputLock)
         {
@@ -118,7 +121,7 @@ public static class ConsolePresenter
         }
     }
 
-    public static void PrintHelp(string protocol, string defaultConfig)
+    public void PrintHelp(string protocol, string defaultConfig)
     {
         lock (OutputLock)
         {
@@ -145,7 +148,7 @@ public static class ConsolePresenter
         }
     }
 
-    public static void PrintVerboseLine(string? label, string? value)
+    public void PrintVerboseLine(string? label, string? value)
     {
         if (!string.IsNullOrEmpty(value))
         {
@@ -156,13 +159,13 @@ public static class ConsolePresenter
         }
     }
 
-    public static void PrintValidationWarnings(IEnumerable<string> warnings)
+    public void PrintValidationWarnings(IEnumerable<string> warnings)
     {
         foreach (var w in warnings)
             WriteLineColored($"  ADVERTENCIA: {w}", ConsoleColor.Yellow);
     }
 
-    private static void WriteLineColored(string text, ConsoleColor color)
+    private void WriteLineColored(string text, ConsoleColor color)
     {
         lock (OutputLock)
         {

@@ -101,13 +101,13 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
             request, linkedCts.Token).ConfigureAwait(false);
         sw.Stop();
 
-        await FillResponseAsync(response, httpResponse, sw).ConfigureAwait(false);
+        await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes).ConfigureAwait(false);
         return response;
     }
 
-    private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw)
+    private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw, long bodyLimit)
     {
-        var bodyBytes = await httpResponse.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+        var (bodyBytes, truncated) = await ReadBodyAsync(httpResponse.Content, bodyLimit).ConfigureAwait(false);
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
         target.Response = new ResponseInfo
@@ -117,10 +117,51 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
             Headers = HeaderCollector.CollectFrom(httpResponse),
             BodyRaw = bodyText,
             TimeMs = sw.ElapsedMilliseconds,
-            SizeBytes = bodyBytes.Length
+            SizeBytes = (int)(httpResponse.Content.Headers.ContentLength ?? bodyBytes.LongLength)
         };
 
+        if (truncated)
+        {
+            // No parseamos un body truncado incompleto para no generar JSON corrupto.
+            return;
+        }
+
         TrySetJsonBody(bodyText, target.Response);
+    }
+
+    /// <summary>
+    /// Lee el body con limite para acotar el uso de memoria en respuestas grandes.
+    /// Devuelve los bytes leidos (truncados) y si hubo truncamiento.
+    /// </summary>
+    private static async Task<(byte[] Bytes, bool Truncated)> ReadBodyAsync(HttpContent content, long limit)
+    {
+        if (limit <= 0) return (Array.Empty<byte>(), false);
+
+        await using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
+        using var ms = new MemoryStream();
+        var buffer = new byte[16384];
+        int total = 0;
+
+        while (total < limit)
+        {
+            var read = await stream.ReadAsync(buffer).ConfigureAwait(false);
+            if (read == 0) break;
+
+            var toWrite = (int)Math.Min(read, limit - total);
+            ms.Write(buffer, 0, toWrite);
+            total += toWrite;
+        }
+
+        // Si quedó contenido por leer, fue truncado.
+        if (total < limit)
+        {
+            var trailing = await stream.ReadAsync(buffer).ConfigureAwait(false);
+            return (ms.ToArray(), trailing > 0);
+        }
+
+        // El limite se alcanzó exactamente; confirmar si hay más.
+        var extra = await stream.ReadAsync(buffer).ConfigureAwait(false);
+        return (ms.ToArray(), extra > 0);
     }
 
     private static void TrySetJsonBody(string rawBody, ResponseInfo response)

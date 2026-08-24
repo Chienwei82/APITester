@@ -1,3 +1,4 @@
+using APITester.Core.Models;
 using APITester.Core.Services;
 
 namespace APITester.Tests;
@@ -104,7 +105,15 @@ public class ArgumentParserTests
     {
         var result = ArgumentParser.Parse(["--format=ndjson"], "rest-config.json");
 
-        Assert.Equal("ndjson", result.OutputFormat);
+        Assert.Equal(OutputFormat.Ndjson, result.OutputFormat);
+    }
+
+    [Fact]
+    public void Parse_DefaultFormat_IsJson()
+    {
+        var result = ArgumentParser.Parse([], "rest-config.json");
+
+        Assert.Equal(OutputFormat.Json, result.OutputFormat);
     }
 
     [Fact]

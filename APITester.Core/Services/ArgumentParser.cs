@@ -12,79 +12,93 @@ public static class ArgumentParser
         {
             var arg = args[i];
 
-            if (arg.StartsWith("--config=", StringComparison.Ordinal))
-            {
-                cli = cli with { ConfigFile = arg["--config=".Length..] };
-                continue;
-            }
-            if (arg.StartsWith("--output=", StringComparison.Ordinal))
-            {
-                cli = cli with { OutputFile = arg["--output=".Length..] };
-                continue;
-            }
-            if (arg.StartsWith("--jobs=", StringComparison.Ordinal) || arg.StartsWith("--concurrency=", StringComparison.Ordinal))
-            {
-                var value = arg.Contains('=') ? arg.Split('=', 2)[1] : "";
-                if (int.TryParse(value, out var jobs) && jobs > 0 && jobs <= 100)
-                    cli = cli with { MaxConcurrency = jobs };
-                else
-                    throw new ArgumentException($"Valor invalido para {arg}: se espera un entero entre 1 y 100");
-                continue;
-            }
-            if (arg.StartsWith("--format=", StringComparison.Ordinal))
-            {
-                var value = arg["--format=".Length..];
-                if (value is "json" or "ndjson")
-                    cli = cli with { OutputFormat = value };
-                else
-                    throw new ArgumentException($"Formato invalido: {value}. Use 'json' o 'ndjson'");
-                continue;
-            }
-
+            // Flags booleanos sin valor.
             switch (arg)
             {
-                case "-c" or "--config" when i + 1 < args.Length:
-                    cli = cli with { ConfigFile = args[++i] };
-                    break;
-                case "-o" or "--output" when i + 1 < args.Length:
-                    cli = cli with { OutputFile = args[++i] };
-                    break;
-                case "-j" or "--jobs" or "--concurrency" when i + 1 < args.Length:
-                    if (int.TryParse(args[i + 1], out var jobs) && jobs > 0 && jobs <= 100)
-                        cli = cli with { MaxConcurrency = jobs };
-                    else
-                        throw new ArgumentException($"Valor invalido para {arg}: se espera un entero entre 1 y 100");
-                    i++;
-                    break;
                 case "-v" or "--verbose":
                     cli = cli with { Verbose = true };
-                    break;
+                    continue;
                 case "-h" or "--help":
                     cli = cli with { ShowHelp = true };
-                    break;
-                case "--format" when i + 1 < args.Length:
-                    var format = args[++i];
-                    if (format is "json" or "ndjson")
-                        cli = cli with { OutputFormat = format };
-                    else
-                        throw new ArgumentException($"Formato invalido: {format}. Use 'json' o 'ndjson'");
-                    break;
+                    continue;
                 case "--strict":
                     cli = cli with { StrictValidation = true };
-                    break;
+                    continue;
                 case "--quiet":
                     cli = cli with { Quiet = true };
-                    break;
+                    continue;
                 case "--no-color":
                     cli = cli with { NoColor = true };
+                    continue;
+            }
+
+            // Flags que aceptan un valor: "--opt <val>" o "--opt=<val>".
+            var (name, inlineValue) = SplitOption(arg);
+
+            switch (name)
+            {
+                case "-c" or "--config":
+                    cli = cli with { ConfigFile = ReadValue("config", inlineValue, args, ref i) };
+                    break;
+                case "-o" or "--output":
+                    cli = cli with { OutputFile = ReadValue("output", inlineValue, args, ref i) };
+                    break;
+                case "-j" or "--jobs" or "--concurrency":
+                    cli = cli with { MaxConcurrency = ReadJobs("jobs", inlineValue, args, ref i) };
+                    break;
+                case "--format":
+                    cli = cli with { OutputFormat = ReadFormat(inlineValue, args, ref i) };
                     break;
                 default:
                     if (arg.StartsWith('-'))
                         throw new ArgumentException($"Argumento desconocido: {arg}. Use --help para ver la ayuda.");
-                    break;
+                    break; // valores posicionales sueltos: se ignoran
             }
         }
 
         return cli;
+    }
+
+    /// <summary>Separa "--opt=val" en ("--opt", "val"); si no hay '=', devuelve (arg, null).</summary>
+    private static (string Name, string? InlineValue) SplitOption(string arg)
+    {
+        if (!arg.StartsWith('-'))
+            return (arg, null);
+
+        var eq = arg.IndexOf('=');
+        if (eq < 0)
+            return (arg, null);
+
+        return (arg[..eq], arg[(eq + 1)..]);
+    }
+
+    private static string ReadValue(string flag, string? inline, string[] args, ref int i)
+    {
+        if (inline is not null)
+            return inline;
+        if (i + 1 < args.Length)
+            return args[++i];
+        throw new ArgumentException($"Falta un valor para '{flag}'");
+    }
+
+    private static int ReadJobs(string flag, string? inline, string[] args, ref int i)
+    {
+        var raw = ReadValue(flag, inline, args, ref i);
+        if (int.TryParse(raw, out var jobs) && jobs > 0 && jobs <= 100)
+            return jobs;
+        throw new ArgumentException(
+            $"Valor invalido para '{flag}': se espera un entero entre 1 y 100");
+    }
+
+    private static OutputFormat ReadFormat(string? inline, string[] args, ref int i)
+    {
+        var raw = ReadValue("format", inline, args, ref i);
+        return raw switch
+        {
+            "json" => OutputFormat.Json,
+            "ndjson" => OutputFormat.Ndjson,
+            _ => throw new ArgumentException(
+                $"Formato invalido: {raw}. Use 'json' o 'ndjson'")
+        };
     }
 }
