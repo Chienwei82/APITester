@@ -42,8 +42,8 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
     {
         var policy = new RetryPolicy
         {
-            MaxRetries = config.Retries,
-            DelayMs = config.RetryDelayMilliseconds,
+            MaxRetries = config.EffectiveRetries,
+            DelayMs = config.EffectiveRetryDelayMilliseconds,
             UseExponentialBackoff = config.UseExponentialBackoff,
             RetryOnStatusCodes = config.RetryOnStatusCodes
         };
@@ -83,7 +83,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 
         var handler = CertHandlerFactory.Create(config.Cert);
         using var timeoutCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(config.TimeoutInSeconds));
+            TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token);
 

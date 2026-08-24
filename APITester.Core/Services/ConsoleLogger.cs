@@ -3,7 +3,6 @@ namespace APITester.Core.Services;
 public class ConsoleLogger : ILogger
 {
     private readonly TextWriter _writer;
-    private readonly object _lock = new();
 
     public ConsoleLogger(TextWriter? writer = null)
     {
@@ -24,11 +23,10 @@ public class ConsoleLogger : ILogger
 
     private void WriteLine(string text, ConsoleColor color)
     {
-        // Lock MUST cover the entire color-change-write-reset sequence.
-        // Minimizing the lock scope would allow other threads to change
-        // Console.ForegroundColor between our SetColor and WriteLine calls,
-        // causing mixed/corrupted console output.
-        lock (_lock)
+        // The lock MUST cover the entire color-change-write-reset sequence and must be
+        // the SAME lock used by ConsolePresenter, otherwise concurrent output from both
+        // components can corrupt colors between threads.
+        lock (ConsolePresenter.OutputLock)
         {
             if (_writer == Console.Out || _writer == Console.Error)
             {

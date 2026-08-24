@@ -126,7 +126,7 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 
 - `baseUrl`: las URLs relativas de los requests se resuelven contra esta base
 - `headers` / `query`: se aplican a los requests que no definan los propios
-- `timeout`, `retries`, `retryDelayMs`: se aplican a los requests que usen el valor por defecto
+- `timeout`, `retries`, `retryDelayMs`: se aplican solo a los requests que **no** definen un valor propio (así un valor explícito en el request siempre gana al default)
 
 ### Campos disponibles
 
