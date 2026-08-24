@@ -43,7 +43,7 @@ public class RequestExecutor
                     ConsolePresenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
                     ConsolePresenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
                     ConsolePresenter.PrintVerboseLine("Cert", config.Cert?.Path);
-                    ConsolePresenter.PrintVerboseLine("Retries", config.Retries > 0 ? $"{config.Retries} max" : null);
+                    ConsolePresenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
                 }
 
                 return (index: i, result);

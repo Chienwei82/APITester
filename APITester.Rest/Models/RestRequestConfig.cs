@@ -19,13 +19,13 @@ public class RestRequestConfig
     public bool AppendOutput { get; set; }
 
     [JsonPropertyName("timeout")]
-    public int TimeoutInSeconds { get; set; } = 30;
+    public int? TimeoutInSeconds { get; set; }
 
     [JsonPropertyName("retries")]
-    public int Retries { get; set; } = 0;
+    public int? Retries { get; set; }
 
     [JsonPropertyName("retryDelayMs")]
-    public int RetryDelayMilliseconds { get; set; } = 1000;
+    public int? RetryDelayMilliseconds { get; set; }
 
     [JsonPropertyName("retryExponentialBackoff")]
     public bool UseExponentialBackoff { get; set; } = false;
@@ -41,11 +41,11 @@ public class RestRequestConfig
             Headers = defaults.Headers;
         if (Query is null && defaults.Query is not null)
             Query = defaults.Query;
-        if (TimeoutInSeconds == 30 && defaults.TimeoutInSeconds.HasValue)
+        if (TimeoutInSeconds is null && defaults.TimeoutInSeconds.HasValue)
             TimeoutInSeconds = defaults.TimeoutInSeconds.Value;
-        if (Retries == 0 && defaults.Retries.HasValue)
+        if (Retries is null && defaults.Retries.HasValue)
             Retries = defaults.Retries.Value;
-        if (RetryDelayMilliseconds == 1000 && defaults.RetryDelayMilliseconds.HasValue)
+        if (RetryDelayMilliseconds is null && defaults.RetryDelayMilliseconds.HasValue)
             RetryDelayMilliseconds = defaults.RetryDelayMilliseconds.Value;
         if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             Url = defaults.BaseUrl.TrimEnd('/') + "/" + Url.TrimStart('/');
@@ -56,7 +56,7 @@ public class RestRequestConfig
         var urlError = ConfigValidator.ValidateUrl(Url);
         if (urlError is not null) yield return urlError;
 
-        var timeoutError = ConfigValidator.ValidateTimeout(TimeoutInSeconds);
+        var timeoutError = ConfigValidator.ValidateTimeout(EffectiveTimeoutInSeconds);
         if (timeoutError is not null) yield return timeoutError;
 
         var certError = ConfigValidator.ValidateCert(Cert);
@@ -68,6 +68,15 @@ public class RestRequestConfig
         if (!string.IsNullOrEmpty(Body) && !HasBody(Method))
             yield return $"El metodo '{Method}' no soporta body";
     }
+
+    /// <summary>Efectivo timeout, aplicando el default cuando no se especifico.</summary>
+    public int EffectiveTimeoutInSeconds => TimeoutInSeconds ?? 30;
+
+    /// <summary>Efectivos reintentos, aplicando el default cuando no se especifico.</summary>
+    public int EffectiveRetries => Retries ?? 0;
+
+    /// <summary>Efectivo delay entre reintentos, aplicando el default cuando no se especifico.</summary>
+    public int EffectiveRetryDelayMilliseconds => RetryDelayMilliseconds ?? 1000;
 
     private static bool HasBody(string method) =>
         method.ToUpperInvariant() is "POST" or "PUT" or "PATCH";

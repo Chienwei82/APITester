@@ -5,7 +5,10 @@ namespace APITester.Core.Services;
 
 public static class ConsolePresenter
 {
-    private static readonly object _lock = new();
+    /// <summary>Lock compartido para toda la salida en consola,
+    /// de modo que la secuencia cambio-de-color/escritura/reset sea atomica
+    /// incluso cuando se mezcla ConsoleLogger con ConsolePresenter.</summary>
+    public static readonly object OutputLock = new();
     private static int _completedCount;
     private static int _totalCount;
     private static bool _showProgress = true;
@@ -13,7 +16,7 @@ public static class ConsolePresenter
 
     public static void PrintRequestHeader(string label, int index, int total)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             if (index == 0)
             {
@@ -73,7 +76,7 @@ public static class ConsolePresenter
 
     public static void PrintProgress(int completed, int total)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             _completedCount = completed;
             if (_showProgress && total > 1)
@@ -98,7 +101,7 @@ public static class ConsolePresenter
 
     public static void PrintSummary(ExecutionSummary summary)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
             Console.WriteLine($"Tiempo total: {summary.TotalElapsedMs}ms");
@@ -108,7 +111,7 @@ public static class ConsolePresenter
 
     public static void PrintFatalError(string message)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             WriteLineColored($"Error: {message}", ConsoleColor.Red);
             Console.WriteLine("Usa --help para ver la sintaxis.");
@@ -117,7 +120,7 @@ public static class ConsolePresenter
 
     public static void PrintHelp(string protocol, string defaultConfig)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             Console.WriteLine($"API Tester — Cliente {protocol} portable");
             Console.WriteLine();
@@ -146,7 +149,7 @@ public static class ConsolePresenter
     {
         if (!string.IsNullOrEmpty(value))
         {
-            lock (_lock)
+            lock (OutputLock)
             {
                 Console.WriteLine($"  {label}: {value}");
             }
@@ -161,7 +164,7 @@ public static class ConsolePresenter
 
     private static void WriteLineColored(string text, ConsoleColor color)
     {
-        lock (_lock)
+        lock (OutputLock)
         {
             if (_useColors)
             {

@@ -154,7 +154,7 @@ public class ModelValidationTests
     }
 
     [Fact]
-    public void ApplyDefaults_Timeout_AppliedOnlyWhenDefault()
+    public void ApplyDefaults_Timeout_AppliedOnlyWhenExplicit()
     {
         var config = new RestRequestConfig
         {
@@ -165,12 +165,28 @@ public class ModelValidationTests
 
         config.ApplyDefaults(new RestConfigDefaults { TimeoutInSeconds = 10 });
 
-        Assert.Equal(60, config.TimeoutInSeconds);
+        Assert.Equal(60, config.EffectiveTimeoutInSeconds);
     }
 
     [Fact]
-    public void ApplyDefaults_Timeout_AppliedWhenDefaultValue()
+    public void ApplyDefaults_Timeout_AppliedWhenNotSpecified()
     {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET"
+        };
+
+        config.ApplyDefaults(new RestConfigDefaults { TimeoutInSeconds = 10 });
+
+        Assert.Equal(10, config.EffectiveTimeoutInSeconds);
+    }
+
+    [Fact]
+    public void ApplyDefaults_Timeout_NotOverridden_WhenExplicitlySetToClassDefault()
+    {
+        // Un valor definido explicitamente como 30 no debe ser sobrescrito
+        // por un default de configuracion: el campo es ahora anulable.
         var config = new RestRequestConfig
         {
             Url = "https://example.com",
@@ -180,6 +196,6 @@ public class ModelValidationTests
 
         config.ApplyDefaults(new RestConfigDefaults { TimeoutInSeconds = 10 });
 
-        Assert.Equal(10, config.TimeoutInSeconds);
+        Assert.Equal(30, config.EffectiveTimeoutInSeconds);
     }
 }

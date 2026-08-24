@@ -68,28 +68,21 @@ public class RestOrchestrator
         totalSw.Stop();
 
         var defaultOutput = cliArgs.OutputFile ?? "rest-response.json";
+        var plan = BuildWritePlan(results, requests, defaultOutput);
 
-        // Process each request with its own output file
-        for (int i = 0; i < results.Count; i++)
+        if (cliArgs.OutputFormat == "ndjson")
         {
-            var result = results[i];
-            var config = requests[i];
-
-            var requestOutput = config.Output ?? defaultOutput;
-
-            if (config.AppendOutput)
-            {
-                await JsonFormatter.AppendToFileAsync(requestOutput, result).ConfigureAwait(false);
-            }
-            else if (cliArgs.OutputFormat == "ndjson")
-            {
-                await JsonFormatter.SaveToFileNdjsonAsync(requestOutput, new List<ApiResponse> { result }).ConfigureAwait(false);
-            }
-            else
-            {
-                await JsonFormatter.SaveToFileAsync(requestOutput, new List<ApiResponse> { result }).ConfigureAwait(false);
-            }
+            foreach (var (path, group) in plan.Overwrite)
+                await JsonFormatter.SaveToFileNdjsonAsync(path, group).ConfigureAwait(false);
         }
+        else
+        {
+            foreach (var (path, group) in plan.Overwrite)
+                await JsonFormatter.SaveToFileAsync(path, group).ConfigureAwait(false);
+        }
+
+        foreach (var (path, response) in plan.Appends)
+            await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
 
         var summary = new ExecutionSummary
         {
@@ -103,5 +96,46 @@ public class RestOrchestrator
         ConsolePresenter.PrintSummary(summary);
 
         return summary.FailedRequests > 0 ? 1 : 0;
+    }
+
+    /// <summary>Plan de escritura: resultados no-append agrupados por archivo y appends individuales.</summary>
+    public record WritePlan
+    {
+        public required Dictionary<string, List<ApiResponse>> Overwrite { get; init; }
+        public required List<(string Path, ApiResponse Response)> Appends { get; init; }
+    }
+
+    /// <summary>
+    /// Agrupa resultados por archivo de salida para que varios requests con el mismo 'output'
+    /// se escriban de una sola vez (evitando que cada escritura pise a la anterior).
+    /// </summary>
+    public static WritePlan BuildWritePlan(
+        List<ApiResponse> results,
+        List<RestRequestConfig> requests,
+        string defaultOutput)
+    {
+        var overwriteGroups = new Dictionary<string, List<ApiResponse>>();
+        var appends = new List<(string Path, ApiResponse Response)>();
+
+        for (int i = 0; i < results.Count; i++)
+        {
+            var result = results[i];
+            var config = requests[i];
+            var requestOutput = config.Output ?? defaultOutput;
+
+            if (config.AppendOutput)
+            {
+                appends.Add((requestOutput, result));
+                continue;
+            }
+
+            var group = overwriteGroups.TryGetValue(requestOutput, out var existing)
+                ? existing
+                : new List<ApiResponse>();
+            group.Add(result);
+            overwriteGroups[requestOutput] = group;
+        }
+
+        return new WritePlan { Overwrite = overwriteGroups, Appends = appends };
     }
 }
