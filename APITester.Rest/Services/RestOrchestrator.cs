@@ -11,7 +11,16 @@ public class RestOrchestrator
 {
     public static async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        var cliArgs = ArgumentParser.Parse(args, "rest-config.json");
+        CliArgs cliArgs;
+        try
+        {
+            cliArgs = ArgumentParser.Parse(args, "rest-config.json");
+        }
+        catch (ArgumentException ex)
+        {
+            ConsolePresenter.PrintFatalError(ex.Message);
+            return 1;
+        }
 
         if (cliArgs.ShowHelp)
         {

@@ -60,9 +60,17 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
                 _logger,
                 cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (InvalidOperationException ex)
         {
             return new ApiResponse { Error = ex.Message };
+        }
+        catch (Exception ex)
+        {
+            return new ApiResponse { Error = $"{ex.GetType().Name}: {ex.Message}" };
         }
     }
 
@@ -81,15 +89,12 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 
         using var request = RequestBuilder.Build(config);
 
-        var handler = CertHandlerFactory.Create(config.Cert);
+        var client = CertHandlerFactory.Create(config.Cert) ?? _httpClient;
+
         using var timeoutCts = new CancellationTokenSource(
             TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token);
-
-        var client = handler is not null
-            ? new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan }
-            : _httpClient;
 
         var sw = Stopwatch.StartNew();
         using var httpResponse = await client.SendAsync(
