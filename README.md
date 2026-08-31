@@ -20,7 +20,7 @@ Usa `rest-config.json` por defecto y ejecuta los requests definidos ahi, guardan
 ### Linea de comandos
 
 ```
-dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
+dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [--no-redact] [-h]
 ```
 
 | Argumento | Descripcion |
@@ -33,6 +33,7 @@ dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson
 | `--strict` | Fallar si hay advertencias de validacion |
 | `--quiet` | Solo mostrar errores y el resumen final |
 | `--no-color` | Deshabilitar salida con colores |
+| `--no-redact` | No redactar headers sensibles (`Authorization`, `Cookie`, `Set-Cookie`) en la salida |
 | `-h`, `--help` | Muestra la ayuda |
 
 ---
@@ -126,13 +127,13 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 
 - `baseUrl`: las URLs relativas de los requests se resuelven contra esta base
 - `headers` / `query`: se aplican a los requests que no definan los propios
-- `timeout`, `retries`, `retryDelayMs`: se aplican solo a los requests que **no** definen un valor propio (así un valor explícito en el request siempre gana al default)
+- `timeout`, `retries`, `retryDelayMs`, `retryExponentialBackoff`, `retryOnStatusCodes`, `maxBodyBytes`: se aplican solo a los requests que **no** definen un valor propio (así un valor explícito en el request siempre gana al default)
 
 ### Campos disponibles
 
 | Campo | Tipo | Obligatorio | Defecto | Descripcion |
 |---|---|---|---|---|
-| `name` | string | no | `"{method} {url}"` | Nombre descriptivo del request |
+| `name` | string | no | — | Nombre descriptivo del request (si falta, la consola muestra `{method} {url}`) |
 | `url` | string | **si** | — | URL del endpoint |
 | `method` | string | no | `GET` | Metodo HTTP (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) |
 | `headers` | mapa string:string | no | — | Headers HTTP |
@@ -147,16 +148,27 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 | `retryOnStatusCodes` | lista de int | no | — | Reintentar tambien cuando la respuesta tenga estos status codes |
 | `cert.path` | string | no | — | Ruta a un certificado cliente (.pfx) |
 | `cert.password` | string | no | — | Contrasena del certificado |
+| `maxBodyBytes` | long | no | `4194304` | Limite de bytes a leer del body de la respuesta (0 desactiva la lectura) |
 
 ### Validaciones
 
 - `url`: debe ser una URL absoluta valida con http o https
 - `timeout`: entre 1 y 300 segundos
+- `retries`: entre 0 y 10
+- `retryDelayMs`: entre 0 y 60000
 - `method`: solo metodos HTTP estandar
 - `cert.path`: si se especifica, el archivo debe existir en disco
 - `body`: no se permite en metodos sin cuerpo (GET, DELETE, HEAD, OPTIONS)
 
 Las advertencias de validacion aparecen como `ADVERTENCIA` en consola y la ejecucion continua, salvo con `--strict`.
+
+### Exit code
+
+El proceso termina con:
+
+- `0`: todos los requests fueron exitosos (sin error de transporte y status < 400)
+- `1`: error de configuracion, validacion, escritura, o al menos un request fallido (error de red o status >= 400)
+- `130`: ejecucion cancelada por el usuario (Ctrl+C)
 
 ---
 
@@ -188,7 +200,7 @@ El resultado se guarda en un archivo JSON con la siguiente estructura:
     "Url": "https://jsonplaceholder.typicode.com/users",
     "Method": "GET",
     "RequestHeaders": {
-      "Authorization": "Bearer token123"
+      "Authorization": "***"
     }
   },
   "Response": {
@@ -209,6 +221,7 @@ El resultado se guarda en un archivo JSON con la siguiente estructura:
 - Si el request falla (error de red, timeout, etc.), el campo `Error` contiene el mensaje y `Response` es `null`.
 - Si la respuesta es JSON valido, `Body` se parsea como objeto JSON. El texto crudo siempre esta disponible en `BodyRaw`.
 - `RequestHeaders` contiene los headers que fueron enviados en el request (incluyendo los resueltos desde variables de entorno).
+- Los headers con credenciales (`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`) se redactan como `"***"` en la salida por defecto. Usar `--no-redact` para desactivarlo.
 
 Los directorios de salida (por ejemplo `respuestas/`) se crean automaticamente si no existen.
 

@@ -7,6 +7,9 @@ using APITester.Rest.Services;
 
 namespace APITester.Rest;
 
+/// <summary>Resultado de un request junto a su configuracion, emparejados por origen.</summary>
+public record RequestResult(RestRequestConfig Config, ApiResponse Result);
+
 public class RequestExecutor
 {
     private readonly HttpExecutor _executor;
@@ -22,12 +25,16 @@ public class RequestExecutor
         _verbose = verbose;
     }
 
-    public async Task<List<ApiResponse>> ExecuteAllAsync(
+    public async Task<List<RequestResult>> ExecuteAllAsync(
         List<RestRequestConfig> requests,
         CancellationToken cancellationToken = default)
     {
         var semaphore = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
         var completedCount = 0;
+
+        // Inicializar el progreso antes de lanzar los tasks: el request con
+        // indice 0 puede no ser el primero en ejecutarse con concurrencia > 1.
+        _presenter.BeginProgress(requests.Count);
 
         var indexedTasks = requests.Select(async (config, i) =>
         {
@@ -48,7 +55,7 @@ public class RequestExecutor
                     _presenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
                 }
 
-                return (index: i, result);
+                return (index: i, pair: new RequestResult(config, result));
             }
             finally
             {
@@ -62,7 +69,7 @@ public class RequestExecutor
 
         return indexedResults
             .OrderBy(r => r.index)
-            .Select(r => r.result)
+            .Select(r => r.pair)
             .ToList();
     }
 

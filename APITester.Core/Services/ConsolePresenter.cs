@@ -17,7 +17,6 @@ public sealed class ConsolePresenter
     public static readonly object OutputLock = new();
 
     private int _completedCount;
-    private int _totalCount;
     private readonly bool _showProgress;
     private readonly bool _useColors;
 
@@ -27,15 +26,24 @@ public sealed class ConsolePresenter
         _useColors = useColors;
     }
 
+    /// <summary>
+    /// Inicializa los contadores de progreso para una ejecucion.
+    /// Debe llamarse una unica vez antes de lanzar los requests: hacerlo desde
+    /// PrintRequestHeader introduciria una carrera cuando el request con indice 0
+    /// no es el primero en ejecutarse (con concurrencia > 1).
+    /// </summary>
+    public void BeginProgress(int total)
+    {
+        lock (OutputLock)
+        {
+            _completedCount = 0;
+        }
+    }
+
     public void PrintRequestHeader(string label, int index, int total)
     {
         lock (OutputLock)
         {
-            if (index == 0)
-            {
-                _completedCount = 0;
-                _totalCount = total;
-            }
             if (_showProgress && total > 1)
             {
                 PrintProgressBar(_completedCount, total);
@@ -102,13 +110,16 @@ public sealed class ConsolePresenter
             Console.WriteLine();
     }
 
-    public void PrintSummary(ExecutionSummary summary)
+    /// <param name="saved">False cuando la escritura del archivo fallo: no se
+    /// anuncia "salida guardada" pero si se muestran las estadisticas.</param>
+    public void PrintSummary(ExecutionSummary summary, bool saved = true)
     {
         lock (OutputLock)
         {
-            WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
+            if (saved)
+                WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
             Console.WriteLine($"Tiempo total: {summary.TotalElapsedMs}ms");
-            Console.WriteLine($"Requests: {summary.TotalRequests} ejecutados, {summary.SuccessfulRequests} exitosos, {summary.FailedRequests} con error");
+            Console.WriteLine($"Requests: {summary.TotalRequests} ejecutados, {summary.SuccessfulRequests} exitosos, {summary.FailedRequests} fallidos (error de red o status >= 400)");
         }
     }
 
@@ -139,6 +150,7 @@ public sealed class ConsolePresenter
             Console.WriteLine("  --strict           Fallar si hay advertencias de validacion");
             Console.WriteLine("  --quiet            Solo mostrar errores y resumen final");
             Console.WriteLine("  --no-color         Deshabilitar salida con colores");
+            Console.WriteLine("  --no-redact        No redactar headers sensibles (Authorization, Cookie)");
             Console.WriteLine("  -h, --help         Muestra esta ayuda");
             Console.WriteLine();
             Console.WriteLine("Variables de entorno:");
@@ -182,7 +194,7 @@ public sealed class ConsolePresenter
         }
     }
 
-    private static string FormatBytes(int bytes) => bytes switch
+    private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes}B",
         < 1024 * 1024 => $"{bytes / 1024.0:F1}KB",

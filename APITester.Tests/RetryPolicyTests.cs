@@ -181,6 +181,35 @@ public class RetryPolicyTests
     }
 
     [Fact]
+    public async Task ExhaustsAllAttempts_IncludesUnderlyingCauseInMessage()
+    {
+        var policy = new RetryPolicy { MaxRetries = 1, DelayMs = 10 };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await policy.ExecuteAsync<int>(_ =>
+                throw new HttpRequestException("No such host is known")));
+
+        Assert.Contains("No such host is known", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(30)]
+    [InlineData(31)]
+    [InlineData(32)]
+    [InlineData(40)]
+    public void CalculateDelay_ExponentialBackoff_NeverOverflowsOrExceedsCap(int attempt)
+    {
+        var policy = new RetryPolicy { DelayMs = 60000, UseExponentialBackoff = true };
+
+        var delay = policy.CalculateDelay(attempt);
+
+        Assert.InRange(delay, 0, 30000);
+    }
+
+    [Fact]
     public async Task RetryOnStatusCodes_NullList_DoesNotRetryOnStatus()
     {
         var policy = new RetryPolicy { MaxRetries = 2, DelayMs = 10 };

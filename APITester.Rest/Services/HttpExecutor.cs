@@ -13,10 +13,12 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly bool _redactHeaders;
 
-    public HttpExecutor(ILogger? logger = null, HttpClient? httpClient = null)
+    public HttpExecutor(ILogger? logger = null, HttpClient? httpClient = null, bool redactHeaders = true)
     {
         _logger = logger ?? new ConsoleLogger();
+        _redactHeaders = redactHeaders;
         if (httpClient is not null)
         {
             _httpClient = httpClient;
@@ -44,7 +46,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         {
             MaxRetries = config.EffectiveRetries,
             DelayMs = config.EffectiveRetryDelayMilliseconds,
-            UseExponentialBackoff = config.UseExponentialBackoff,
+            UseExponentialBackoff = config.EffectiveUseExponentialBackoff,
             RetryOnStatusCodes = config.RetryOnStatusCodes
         };
 
@@ -83,41 +85,57 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
                 Name = config.Name,
                 Url = config.Url,
                 Method = config.Method,
-                RequestHeaders = RequestBuilder.GetRequestHeaders(config)
+                RequestHeaders = _redactHeaders
+                    ? HeaderRedactor.Redact(RequestBuilder.GetRequestHeaders(config))
+                    : RequestBuilder.GetRequestHeaders(config)
             }
         };
 
         using var request = RequestBuilder.Build(config);
 
-        var client = CertHandlerFactory.Create(config.Cert) ?? _httpClient;
+        // Clientes con certificado salen de la cache con una referencia activa:
+        // se libera al terminar para que la LRU no los deseche en vuelo.
+        var client = CertHandlerFactory.Create(config.Cert);
+        var isCertClient = client is not null;
+        client ??= _httpClient;
 
-        using var timeoutCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, timeoutCts.Token);
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, timeoutCts.Token);
 
-        var sw = Stopwatch.StartNew();
-        using var httpResponse = await client.SendAsync(
-            request, linkedCts.Token).ConfigureAwait(false);
-        sw.Stop();
+            var sw = Stopwatch.StartNew();
+            using var httpResponse = await client.SendAsync(
+                request, linkedCts.Token).ConfigureAwait(false);
+            sw.Stop();
 
-        await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes).ConfigureAwait(false);
-        return response;
+            await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes, _redactHeaders, linkedCts.Token).ConfigureAwait(false);
+            return response;
+        }
+        finally
+        {
+            if (isCertClient)
+                CertHandlerFactory.Release(client);
+        }
     }
 
-    private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw, long bodyLimit)
+    private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw, long bodyLimit, bool redactHeaders, CancellationToken cancellationToken)
     {
-        var (bodyBytes, truncated) = await ReadBodyAsync(httpResponse.Content, bodyLimit).ConfigureAwait(false);
+        var (bodyBytes, truncated) = await ReadBodyAsync(httpResponse.Content, bodyLimit, cancellationToken).ConfigureAwait(false);
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
 
         target.Response = new ResponseInfo
         {
             StatusCode = (int)httpResponse.StatusCode,
             StatusText = httpResponse.ReasonPhrase,
-            Headers = HeaderCollector.CollectFrom(httpResponse),
+            Headers = redactHeaders
+                ? HeaderRedactor.Redact(HeaderCollector.CollectFrom(httpResponse))
+                : HeaderCollector.CollectFrom(httpResponse),
             BodyRaw = bodyText,
             TimeMs = sw.ElapsedMilliseconds,
-            SizeBytes = (int)(httpResponse.Content.Headers.ContentLength ?? bodyBytes.LongLength)
+            SizeBytes = httpResponse.Content.Headers.ContentLength ?? bodyBytes.LongLength
         };
 
         if (truncated)
@@ -133,18 +151,18 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
     /// Lee el body con limite para acotar el uso de memoria en respuestas grandes.
     /// Devuelve los bytes leidos (truncados) y si hubo truncamiento.
     /// </summary>
-    private static async Task<(byte[] Bytes, bool Truncated)> ReadBodyAsync(HttpContent content, long limit)
+    private static async Task<(byte[] Bytes, bool Truncated)> ReadBodyAsync(HttpContent content, long limit, CancellationToken cancellationToken)
     {
         if (limit <= 0) return (Array.Empty<byte>(), false);
 
-        await using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var ms = new MemoryStream();
         var buffer = new byte[16384];
         int total = 0;
 
         while (total < limit)
         {
-            var read = await stream.ReadAsync(buffer).ConfigureAwait(false);
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
 
             var toWrite = (int)Math.Min(read, limit - total);
@@ -155,12 +173,12 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         // Si quedó contenido por leer, fue truncado.
         if (total < limit)
         {
-            var trailing = await stream.ReadAsync(buffer).ConfigureAwait(false);
+            var trailing = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             return (ms.ToArray(), trailing > 0);
         }
 
         // El limite se alcanzó exactamente; confirmar si hay más.
-        var extra = await stream.ReadAsync(buffer).ConfigureAwait(false);
+        var extra = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         return (ms.ToArray(), extra > 0);
     }
 

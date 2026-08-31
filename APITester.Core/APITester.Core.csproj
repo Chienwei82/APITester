@@ -8,4 +8,8 @@
     <AnalysisMode>Recommended</AnalysisMode>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="APITester.Tests" />
+  </ItemGroup>
+
 </Project>

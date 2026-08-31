@@ -175,4 +175,37 @@ public class ArgumentParserTests
 
         Assert.Contains("entre 1 y 100", ex.Message);
     }
+
+    [Fact]
+    public void Parse_NoRedactFlag_DisablesRedaction()
+    {
+        var result = ArgumentParser.Parse(["--no-redact"], "rest-config.json");
+
+        Assert.False(result.RedactSensitiveHeaders);
+    }
+
+    [Fact]
+    public void Parse_Default_RedactionEnabled()
+    {
+        var result = ArgumentParser.Parse([], "rest-config.json");
+
+        Assert.True(result.RedactSensitiveHeaders);
+    }
+
+    [Fact]
+    public void Parse_Format_IsCaseInsensitive()
+    {
+        var result = ArgumentParser.Parse(["--format", "NDJSON"], "rest-config.json");
+
+        Assert.Equal(OutputFormat.Ndjson, result.OutputFormat);
+    }
+
+    [Fact]
+    public void Parse_FlagMissingValue_WhenNextArgLooksLikeFlag()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ArgumentParser.Parse(["--config", "--output"], "rest-config.json"));
+
+        Assert.Contains("Falta un valor", ex.Message);
+    }
 }

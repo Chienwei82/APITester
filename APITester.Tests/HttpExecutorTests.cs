@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using APITester.Core.Models;
 using APITester.Rest.Models;
@@ -17,6 +18,7 @@ public class HttpExecutorTests
         private readonly HttpResponseMessage _response;
         public HttpRequestMessage? LastRequest { get; private set; }
         public string? LastRequestBody { get; private set; }
+        public HttpHeaders ResponseHeaders => _response.Headers;
 
         public MockHttpMessageHandler(HttpResponseMessage response)
         {
@@ -278,6 +280,71 @@ public class HttpExecutorTests
         Assert.NotNull(handler.LastRequest);
         Assert.True(handler.LastRequest.Headers.Contains("X-Api-Key"));
         Assert.True(handler.LastRequest.Headers.Contains("Accept"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RedactsSensitiveHeaders_InOutputByDefault()
+    {
+        var handler = new MockHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        });
+        handler.ResponseHeaders.Add("Set-Cookie", "session=abc123; HttpOnly");
+        var client = new HttpClient(handler);
+        var executor = new HttpExecutor(httpClient: client);
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/items",
+            Method = "POST",
+            Headers = new Dictionary<string, string>
+            {
+                ["Authorization"] = "Bearer test-token",
+                ["X-Api-Key"] = "key-123"
+            },
+            Body = "{}"
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        // La salida redacta las credenciales...
+        Assert.NotNull(result.Request.RequestHeaders);
+        Assert.Equal("***", result.Request.RequestHeaders["Authorization"]);
+        Assert.Equal("key-123", result.Request.RequestHeaders["X-Api-Key"]);
+        Assert.NotNull(result.Response);
+        Assert.NotNull(result.Response.Headers);
+        Assert.Equal("***", result.Response.Headers["Set-Cookie"]);
+
+        // ...pero el request HTTP real viaja completo.
+        var authHeader = handler.LastRequest!.Headers.Authorization;
+        Assert.NotNull(authHeader);
+        Assert.Equal("test-token", authHeader!.Parameter);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoRedact_KeepsHeadersInOutput()
+    {
+        var handler = new MockHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        });
+        var client = new HttpClient(handler);
+        var executor = new HttpExecutor(httpClient: client, redactHeaders: false);
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/items",
+            Method = "GET",
+            Headers = new Dictionary<string, string>
+            {
+                ["Authorization"] = "Bearer test-token"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Request.RequestHeaders);
+        Assert.Equal("Bearer test-token", result.Request.RequestHeaders["Authorization"]);
     }
 
     [Fact]
