@@ -20,31 +20,53 @@ public static class RestConfigLoader
         PropertyNameCaseInsensitive = true
     };
 
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+
     public static async Task<List<RestRequestConfig>> LoadAsync(string filePath)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"No se encuentra '{filePath}'");
 
+        var fileInfo = new FileInfo(filePath);
+        if (fileInfo.Length > MaxFileSizeBytes)
+            throw new InvalidDataException(
+                $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
+
+        // Leer el archivo una sola vez y resolver la estructura sobre ese contenido,
+        // sin re-lectura desde disco en el loader generico.
         var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(json))
-            throw new InvalidDataException("JSON vacio");
+            throw new InvalidDataException(
+                "JSON sin requests. Usa 'url' para uno o '[{ \"url\": ... }]' para varios.");
 
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        // Objeto con "defaults"/"requests"/"request" => estructura de archivo REST.
-        if (root.ValueKind == JsonValueKind.Object)
+        JsonDocument doc;
+        try
         {
-            var isConfigFile = root.TryGetProperty("defaults", out _)
-                            || root.TryGetProperty("requests", out _)
-                            || root.TryGetProperty("request", out _);
-            if (isConfigFile)
-                return LoadFromConfigFile(json);
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+
+            // Objeto con "defaults"/"requests"/"request" => estructura de archivo REST.
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                var isConfigFile = root.TryGetProperty("defaults", out _)
+                                || root.TryGetProperty("requests", out _)
+                                || root.TryGetProperty("request", out _);
+                if (isConfigFile)
+                    return LoadFromConfigFile(json);
+            }
         }
 
         // Caso array o request-unico: lo resuelve el loader generico.
-        return await GenericLoader.LoadAsync(filePath).ConfigureAwait(false);
+        return GenericLoader.LoadFromJson(json);
     }
 
     private static List<RestRequestConfig> LoadFromConfigFile(string json)

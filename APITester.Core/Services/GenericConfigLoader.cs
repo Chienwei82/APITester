@@ -31,10 +31,18 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
                 $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
 
         var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+        return LoadFromJson(json);
+    }
 
+    /// <summary>
+    /// Resuelve contenido JSON ya leido: array de items, o item unico validado
+    /// con <paramref name="_isSingleValid"/>. Permite a loaders derivados leer el
+    /// archivo una sola vez y reutilizar el contenido sin volver a disco.
+    /// </summary>
+    public List<T> LoadFromJson(string json)
+    {
         if (string.IsNullOrWhiteSpace(json))
-            throw new InvalidDataException(
-                $"JSON sin requests. Usa '{_singleKeyField}' para uno o '[{{ \"{_singleKeyField}\": ... }}]' para varios.");
+            throw new InvalidDataException(NoRequestsMessage);
 
         JsonDocument doc;
         try
@@ -78,7 +86,9 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
             }
         }
 
-        throw new InvalidDataException(
-            $"JSON sin requests. Usa '{_singleKeyField}' para uno o '[{{ \"{_singleKeyField}\": ... }}]' para varios.");
+        throw new InvalidDataException(NoRequestsMessage);
     }
+
+    private string NoRequestsMessage =>
+        $"JSON sin requests. Usa '{_singleKeyField}' para uno o '[{{ \"{_singleKeyField}\": ... }}]' para varios.";
 }

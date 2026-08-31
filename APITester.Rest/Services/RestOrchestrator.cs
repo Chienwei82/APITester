@@ -14,7 +14,7 @@ public class RestOrchestrator
         CliArgs cliArgs;
         try
         {
-            cliArgs = ArgumentParser.Parse(args, "rest-config.json");
+            cliArgs = ArgumentParser.Parse(args, CliArgs.DefaultConfigFile);
         }
         catch (ArgumentException ex)
         {
@@ -26,7 +26,7 @@ public class RestOrchestrator
 
         if (cliArgs.ShowHelp)
         {
-            presenter.PrintHelp("REST", "rest-config.json");
+            presenter.PrintHelp("REST", CliArgs.DefaultConfigFile);
             return 0;
         }
 
@@ -70,37 +70,46 @@ public class RestOrchestrator
     {
         var totalSw = Stopwatch.StartNew();
 
-        using var executor = new HttpExecutor();
+        using var executor = new HttpExecutor(redactHeaders: cliArgs.RedactSensitiveHeaders);
         var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.MaxConcurrency, cliArgs.Verbose);
 
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 
         var defaultOutput = cliArgs.OutputFile ?? "rest-response.json";
-        var plan = BuildWritePlan(results, requests, defaultOutput);
-
-        if (cliArgs.OutputFormat == OutputFormat.Ndjson)
-        {
-            foreach (var (path, group) in plan.Overwrite)
-                await JsonFormatter.SaveToFileNdjsonAsync(path, group).ConfigureAwait(false);
-        }
-        else
-        {
-            foreach (var (path, group) in plan.Overwrite)
-                await JsonFormatter.SaveToFileAsync(path, group).ConfigureAwait(false);
-        }
-
-        foreach (var (path, response) in plan.Appends)
-            await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
+        var plan = BuildWritePlan(results, defaultOutput);
 
         var summary = new ExecutionSummary
         {
             OutputFile = defaultOutput,
             TotalElapsedMs = totalSw.ElapsedMilliseconds,
             TotalRequests = results.Count,
-            SuccessfulRequests = results.Count(r => r.Response is not null),
-            FailedRequests = results.Count(r => r.Error is not null)
+            SuccessfulRequests = results.Count(r => r.Result.IsSuccessful),
+            FailedRequests = results.Count(r => !r.Result.IsSuccessful)
         };
+
+        try
+        {
+            if (cliArgs.OutputFormat == OutputFormat.Ndjson)
+            {
+                foreach (var (path, group) in plan.Overwrite)
+                    await JsonFormatter.SaveToFileNdjsonAsync(path, group).ConfigureAwait(false);
+            }
+            else
+            {
+                foreach (var (path, group) in plan.Overwrite)
+                    await JsonFormatter.SaveToFileAsync(path, group).ConfigureAwait(false);
+            }
+
+            foreach (var (path, response) in plan.Appends)
+                await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            presenter.PrintFatalError($"No se pudo guardar la salida '{summary.OutputFile}': {ex.Message}");
+            presenter.PrintSummary(summary, saved: false);
+            return 1;
+        }
 
         presenter.PrintSummary(summary);
 
@@ -115,21 +124,20 @@ public class RestOrchestrator
     }
 
     /// <summary>
-    /// Agrupa resultados por archivo de salida para que varios requests con el mismo 'output'
-    /// se escriban de una sola vez (evitando que cada escritura pise a la anterior).
+    /// Agrupa resultados por archivo de salida para que varios requests con el
+    /// mismo 'output' se escriban de una sola vez (evitando que cada escritura
+    /// pise a la anterior). Trabaja sobre pares (config, resultado), sin
+    /// alinear por indice contra la lista de requests.
     /// </summary>
     public static WritePlan BuildWritePlan(
-        List<ApiResponse> results,
-        List<RestRequestConfig> requests,
+        List<RequestResult> results,
         string defaultOutput)
     {
         var overwriteGroups = new Dictionary<string, List<ApiResponse>>();
         var appends = new List<(string Path, ApiResponse Response)>();
 
-        for (int i = 0; i < results.Count; i++)
+        foreach (var (config, result) in results)
         {
-            var result = results[i];
-            var config = requests[i];
             var requestOutput = config.Output ?? defaultOutput;
 
             if (config.AppendOutput)

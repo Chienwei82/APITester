@@ -17,9 +17,7 @@ public static class RequestBuilder
     {
         var method = new HttpMethod(config.Method.ToUpperInvariant());
         var url = BuildUrlWithQuery(config);
-        var request = new HttpRequestMessage(method, url);
-
-        var resolvedHeaders = config.Headers is not null
+        var request = new HttpRequestMessage(method, url);        var resolvedHeaders = config.Headers is not null
             ? EnvVarResolver.Resolve(config.Headers)
             : null;
 
@@ -37,7 +35,7 @@ public static class RequestBuilder
             request.Headers.TryAddWithoutValidation(key, value);
         }
 
-        if (HasBody(method) && config.Body is not null)
+        if (HttpMethods.SupportsBody(config.Method) && config.Body is not null)
         {
             var contentType = ResolveContentType(resolvedHeaders);
             var resolvedBody = EnvVarResolver.Resolve(config.Body)!;
@@ -84,9 +82,6 @@ public static class RequestBuilder
         var sep = url.Contains('?') ? '&' : '?';
         return $"{url}{sep}{string.Join("&", segments)}";
     }
-
-    private static bool HasBody(HttpMethod method) =>
-        method.Method is "POST" or "PUT" or "PATCH";
 
     private static string ResolveContentType(Dictionary<string, string>? headers)
     {

@@ -75,6 +75,110 @@ public class ModelValidationTests
     }
 
     [Fact]
+    public void RestRequestConfig_RetriesOutOfRange_HasWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Retries = 50
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.Contains(warnings, w => w.Contains("Retries"));
+    }
+
+    [Fact]
+    public void RestRequestConfig_RetriesNegative_HasWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Retries = -1
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.Contains(warnings, w => w.Contains("Retries"));
+    }
+
+    [Fact]
+    public void RestRequestConfig_RetryDelayOutOfRange_HasWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            RetryDelayMilliseconds = 70000
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.Contains(warnings, w => w.Contains("RetryDelayMs"));
+    }
+
+    [Fact]
+    public void RestRequestConfig_RetriesInRange_NoWarning()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Retries = 10,
+            RetryDelayMilliseconds = 60000
+        };
+
+        var warnings = config.Validate().ToList();
+
+        Assert.DoesNotContain(warnings, w => w.Contains("Retries"));
+        Assert.DoesNotContain(warnings, w => w.Contains("RetryDelayMs"));
+    }
+
+    [Fact]
+    public void ApplyDefaults_RetrySettingsAndMaxBodyBytes_AppliedWhenNull()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET"
+        };
+
+        config.ApplyDefaults(new RestConfigDefaults
+        {
+            UseExponentialBackoff = true,
+            RetryOnStatusCodes = [429, 503],
+            MaxBodyBytes = 1024
+        });
+
+        Assert.True(config.EffectiveUseExponentialBackoff);
+        Assert.NotNull(config.RetryOnStatusCodes);
+        Assert.Equal([429, 503], config.RetryOnStatusCodes);
+        Assert.Equal(1024, config.MaxBodyBytes);
+    }
+
+    [Fact]
+    public void ApplyDefaults_RetrySettings_DoNotOverrideExisting()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET",
+            UseExponentialBackoff = false,
+            RetryOnStatusCodes = [500],
+            MaxBodyBytes = 2048
+        };
+
+        config.ApplyDefaults(new RestConfigDefaults
+        {
+            UseExponentialBackoff = true,
+            RetryOnStatusCodes = [429],
+            MaxBodyBytes = 1024
+        });
+
+        Assert.False(config.EffectiveUseExponentialBackoff);
+        Assert.Equal([500], config.RetryOnStatusCodes);
+        Assert.Equal(2048, config.MaxBodyBytes);
+    }
+
+    [Fact]
     public void ApplyDefaults_BaseUrl_ResolvesRelativeUrl()
     {
         var config = new RestRequestConfig
