@@ -17,15 +17,20 @@ cd APITester.Rest
 dotnet run
 ```
 
-Sin argumentos, la app abre un menu en consola:
+Sin argumentos, la app abre un menu TUI en consola (colores, navegacion con **flechas** y Enter):
 
 1. **Ejecutar requests** — ejecuta la configuracion seleccionada y vuelve al menu.
 2. **Elegir archivo de configuracion** — cambia el JSON de requests.
 3. **Opciones de ejecucion** — salida, formato, verbose, strict, quiet y sin colores.
-4. **Ver ayuda**
+4. **Ejecutar un request (paso a paso)** — asistente que te pregunta todos los parametros.
+5. **Ver ayuda**
 0. **Salir**
 
-Ctrl+C durante una ejecucion cancela solo esa ejecucion y te devuelve al menu; en el menu, Ctrl+C sale de la aplicacion. Si la entrada esta redirigida (pipes, CI), sin argumentos se ejecuta directamente `rest-config.json` para no bloquear scripts.
+Ctrl+C durante una ejecucion cancela solo esa ejecucion y te devuelve al menu; en un prompt del menu la aplicacion sale directamente. Si la entrada esta redirigida (pipes, CI), sin argumentos se ejecuta directamente `rest-config.json` para no bloquear scripts.
+
+### Asistente paso a paso
+
+La opcion **4** construye un request sin tocar el JSON: pregunta nombre, metodo, URL, headers, query string, body (solo en POST/PUT/PATCH), timeout, reintentos, archivo de salida y, si quieres, la configuracion avanzada (delay, backoff, limite de respuesta y certificado cliente). Al final muestra un resumen y pide confirmacion; el request se ejecuta con el mismo pipeline que la CLI (spinner, validaciones, retries y guardado si indicas archivo).
 
 ### Linea de comandos
 
@@ -268,14 +273,17 @@ APITester.slnx
 ├── APITester.Core           ← Logica compartida (modelos, interfaces, utilidades)
 │   ├── Models/              ← ApiResponse, CertConfig, CliArgs, ExecutionSummary
 │   └── Services/            ← ConfigValidator, ConsolePresenter, EnvVarResolver,
-│                               GenericConfigLoader, JsonFormatter, RetryPolicy, etc.
+│                               GenericConfigLoader, HeaderRules, HttpMethods, JsonFormatter,
+│                               RetryPolicy, etc.
 ├── APITester.Rest           ← Implementacion REST
 │   ├── Program.cs           ← Punto de entrada (CLI o modo interactivo)
 │   ├── Models/              ← RestRequestConfig, RestConfigDefaults
-│   └── Services/            ← RestOrchestrator, InteractiveSession, CtrlCCoordinator,
-│                               HttpExecutor, RestConfigLoader, RequestExecutor
+│   └── Services/            ← RestOrchestrator, InteractiveSession, RequestWizard, Tui,
+│                               CtrlCCoordinator, HttpExecutor, RestConfigLoader, RequestExecutor
 └── APITester.Tests          ← Tests unitarios
 ```
+
+La UI del modo interactivo usa [Spectre.Console](https://spectreconsole.net/) (menus, prompts y colores) a traves de `IAnsiConsole`, lo que permite probarlo en memoria con `TestConsole`; la CLI y el `ConsolePresenter` no dependen de el.
 
 El diseno separa el nucleo (`Core`) del protocolo especifico (`Rest`), lo que permite agregar otros protocolos (GraphQL, gRPC, etc.) implementando `IApiExecutor<T>`.
 

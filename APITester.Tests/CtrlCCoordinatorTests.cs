@@ -51,4 +51,21 @@ public class CtrlCCoordinatorTests
 
         Assert.True(ctrlC.Token.IsCancellationRequested);
     }
+
+    [Fact]
+    public async Task HasActiveRun_TracksWhetherARunIsInCourse()
+    {
+        using var ctrlC = new CtrlCCoordinator();
+        Assert.False(ctrlC.HasActiveRun);
+
+        var hasActiveRun = await ctrlC.RunCancellableAsync(async _ =>
+        {
+            Assert.True(ctrlC.HasActiveRun);
+            await Task.Yield();
+            return 0;
+        });
+
+        Assert.Equal(0, hasActiveRun);
+        Assert.False(ctrlC.HasActiveRun);
+    }
 }

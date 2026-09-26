@@ -9,12 +9,6 @@ public static class RequestBuilder
 {
     private const string DefaultContentType = "application/json";
 
-    private static readonly HashSet<string> ForbiddenHeaders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Content-Length", "Transfer-Encoding", "Host", "Connection",
-        "Upgrade", "Proxy-Connection", "Keep-Alive", "TE", "Trailer"
-    };
-
     /// <summary>
     /// Construye el request y devuelve tambien los headers que viajan en el (sin
     /// Content-Type, que se envia con el body). Es el unico punto que resuelve
@@ -31,7 +25,7 @@ public static class RequestBuilder
 
         foreach (var (key, value) in headers)
         {
-            if (IsContentType(key)) continue;
+            if (HeaderRules.IsContentType(key)) continue;
 
             request.Headers.TryAddWithoutValidation(key, value);
             sentHeaders[key] = value;
@@ -59,11 +53,9 @@ public static class RequestBuilder
 
         foreach (var (key, value) in EnvVarResolver.Resolve(config.Headers))
         {
-            if (ForbiddenHeaders.Contains(key))
-                throw new InvalidOperationException($"Header '{key}' no esta permitido por seguridad");
-
-            if (value.IndexOfAny(['\r', '\n']) >= 0)
-                throw new InvalidOperationException($"El valor del header '{key}' contiene caracteres invalidos");
+            var error = HeaderRules.Validate(key, value);
+            if (error is not null)
+                throw new InvalidOperationException(error);
 
             resolved[key] = value;
         }
@@ -87,7 +79,4 @@ public static class RequestBuilder
         var sep = url.Contains('?') ? '&' : '?';
         return $"{url}{sep}{string.Join("&", segments)}";
     }
-
-    private static bool IsContentType(string key) =>
-        key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase);
 }

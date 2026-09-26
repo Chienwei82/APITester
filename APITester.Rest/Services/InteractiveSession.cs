@@ -1,92 +1,114 @@
 using APITester.Core.Models;
 using APITester.Core.Services;
+using APITester.Rest.Models;
+using Spectre.Console;
 
 namespace APITester.Rest;
 
 /// <summary>
-/// Modo interactivo: un menu en bucle que va construyendo un <see cref="CliArgs"/>
-/// y delega cada ejecucion en el pipeline via <c>execute</c>. La entrada y la
-/// salida son inyectables para poder probar la sesion sin consola.
+/// Modo interactivo TUI (Spectre.Console): menu con navegacion por flechas que
+/// va construyendo un <see cref="CliArgs"/> y delega cada ejecucion en el
+/// pipeline; incluye el asistente para ejecutar un request paso a paso. La
+/// consola es inyectable (<see cref="IAnsiConsole"/>) para probarla sin consola.
 /// </summary>
 public sealed class InteractiveSession
 {
-    private readonly TextReader _input;
-    private readonly TextWriter _output;
+    private readonly Func<CliArgs, IAnsiConsole> _createConsole;
+    private IAnsiConsole _console;
     private CliArgs _options;
 
-    public InteractiveSession(TextReader input, TextWriter output, CliArgs? initialOptions = null)
+    private enum MainMenu { Run, Config, Options, Wizard, Help, Exit }
+
+    private enum OptionsMenu { Output, Format, Verbose, Strict, Quiet, NoColor, Back }
+
+    public InteractiveSession(
+        IAnsiConsole console,
+        Func<CliArgs, IAnsiConsole>? createConsole = null,
+        CliArgs? initialOptions = null)
     {
-        _input = input;
-        _output = output;
+        _console = console;
+        _createConsole = createConsole ?? (_ => console);
         _options = initialOptions ?? new CliArgs();
     }
 
     /// <summary>
-    /// Bucle principal hasta que el usuario sale (0) o se acaba la entrada (EOF).
-    /// Lanza <see cref="OperationCanceledException"/> si se cancela el token.
+    /// Bucle principal hasta que el usuario elige Salir. Lanza
+    /// <see cref="OperationCanceledException"/> si se cancela el token. No hay EOF
+    /// que tratar: el modo interactivo solo se abre con una terminal real
+    /// (<c>Console.IsInputRedirected == false</c>), donde la lectura de teclas
+    /// nunca devuelve fin de entrada.
     /// </summary>
-    public async Task<int> RunAsync(Func<CliArgs, Task<int>> execute, CancellationToken cancellationToken = default)
+    public async Task<int> RunAsync(
+        Func<CliArgs, Task<int>> execute,
+        Func<RestRequestConfig, CliArgs, Task<int>> runSingle,
+        CancellationToken cancellationToken = default)
     {
-        PrintBanner();
+        Tui.Banner(_console);
 
-        try
+        while (true)
         {
-            while (true)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var option = Tui.Choose(_console, "Opciones:", FormatMainMenu,
+                Enum.GetValues<MainMenu>(), cancellationToken);
+
+            switch (option)
             {
-                PrintMenu();
-
-                var option = (await PromptAsync("Opcion: ", cancellationToken).ConfigureAwait(false)).Trim();
-                switch (option)
-                {
-                    case "1":
-                        await RunOnceAsync(execute).ConfigureAwait(false);
-                        break;
-                    case "2":
-                        await ChooseConfigAsync(cancellationToken).ConfigureAwait(false);
-                        break;
-                    case "3":
-                        await EditOptionsAsync(cancellationToken).ConfigureAwait(false);
-                        break;
-                    case "4":
-                        new ConsolePresenter().PrintHelp("REST", _options.ConfigFile);
-                        break;
-                    case "0":
-                        return 0;
-                    default:
-                        _output.WriteLine("Opcion no valida.");
-                        break;
-                }
+                case MainMenu.Run:
+                    await RunAndReportAsync(() => execute(_options)).ConfigureAwait(false);
+                    break;
+                case MainMenu.Config:
+                    ChooseConfig(cancellationToken);
+                    break;
+                case MainMenu.Options:
+                    EditOptions(cancellationToken);
+                    break;
+                case MainMenu.Wizard:
+                    await RunWizardAsync(runSingle, cancellationToken).ConfigureAwait(false);
+                    break;
+                case MainMenu.Help:
+                    new ConsolePresenter().PrintHelp("REST", _options.ConfigFile);
+                    break;
+                case MainMenu.Exit:
+                    return 0;
             }
-        }
-        catch (EndOfStreamException)
-        {
-            // EOF: se cerro la entrada de la sesion y termina limpiamente.
-            return 0;
         }
     }
 
-    private async Task RunOnceAsync(Func<CliArgs, Task<int>> execute)
+    private async Task RunAndReportAsync(Func<Task<int>> run)
     {
         try
         {
-            var exitCode = await execute(_options).ConfigureAwait(false);
+            var exitCode = await run().ConfigureAwait(false);
             if (exitCode != 0)
             {
-                _output.WriteLine($"La ejecucion termino con errores (codigo {exitCode}).");
+                Tui.Error(_console, $"La ejecucion termino con errores (codigo {exitCode}).");
             }
         }
         catch (OperationCanceledException)
         {
             // Ctrl+C durante la ejecucion: se cancela solo el run y se vuelve al menu.
-            _output.WriteLine("Ejecucion cancelada. Volviendo al menu.");
+            Tui.Warn(_console, "Ejecucion cancelada. Volviendo al menu.");
         }
     }
 
-    private async Task ChooseConfigAsync(CancellationToken cancellationToken)
+    private async Task RunWizardAsync(
+        Func<RestRequestConfig, CliArgs, Task<int>> runSingle,
+        CancellationToken cancellationToken)
     {
-        var answer = await PromptAsync(
-            $"Ruta del archivo [{_options.ConfigFile}]: ", cancellationToken).ConfigureAwait(false);
-        var path = answer.Trim();
+        var request = new RequestWizard(_console).Build(cancellationToken);
+        if (request is null)
+        {
+            Tui.Info(_console, "Asistente cancelado. Volviendo al menu.");
+            return;
+        }
+
+        await RunAndReportAsync(() => runSingle(request, _options)).ConfigureAwait(false);
+    }
+
+    private void ChooseConfig(CancellationToken cancellationToken)
+    {
+        var path = Tui.AskTextOptional(_console, "Ruta del archivo", cancellationToken).Trim();
         if (path.Length == 0)
         {
             return;
@@ -94,174 +116,101 @@ public sealed class InteractiveSession
 
         if (!File.Exists(path))
         {
-            _output.WriteLine($"Aviso: no se encuentra '{path}'.");
+            Tui.Warn(_console, $"No se encuentra '{path}'.");
         }
 
         _options = _options with { ConfigFile = path };
     }
 
-    private void PrintBanner()
-    {
-        _output.WriteLine("API Tester — modo interactivo");
-        _output.WriteLine("Ctrl+C cancela la ejecucion en curso o, en el menu, sale de la aplicacion.");
-    }
-
-    private void PrintMenu()
-    {
-        _output.WriteLine();
-        _output.WriteLine("Opciones:");
-        _output.WriteLine($"  1) Ejecutar requests                 (config: {_options.ConfigFile})");
-        _output.WriteLine("  2) Elegir archivo de configuracion");
-        _output.WriteLine("  3) Opciones de ejecucion");
-        _output.WriteLine("  4) Ver ayuda");
-        _output.WriteLine("  0) Salir");
-    }
-
-    private async Task EditOptionsAsync(CancellationToken cancellationToken)
+    private void EditOptions(CancellationToken cancellationToken)
     {
         while (true)
         {
-            _output.WriteLine();
-            _output.WriteLine("Opciones de ejecucion:");
-            _output.WriteLine($"  1) Archivo de salida   [{_options.OutputFile ?? "automatico"}]");
-            _output.WriteLine($"  2) Formato             [{FormatName(_options.OutputFormat)}]");
-            _output.WriteLine($"  3) Verbose             [{OnOff(_options.Verbose)}]");
-            _output.WriteLine($"  4) Strict              [{OnOff(_options.StrictValidation)}]");
-            _output.WriteLine($"  5) Quiet               [{OnOff(_options.Quiet)}]");
-            _output.WriteLine($"  6) Sin colores         [{OnOff(_options.NoColor)}]");
-            _output.WriteLine("  0) Volver al menu");
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var option = (await PromptAsync("Opcion: ", cancellationToken).ConfigureAwait(false)).Trim();
-            switch (option)
+            var item = Tui.Choose(_console, "Opciones de ejecucion:", FormatOptionsMenu,
+                Enum.GetValues<OptionsMenu>(), cancellationToken);
+
+            switch (item)
             {
-                case "0":
+                case OptionsMenu.Back:
                     return;
-                case "1":
-                    await EditOutputFileAsync(cancellationToken).ConfigureAwait(false);
+                case OptionsMenu.Output:
+                    EditOutputFile(cancellationToken);
                     break;
-                case "2":
-                    var format = await ReadFormatAsync(cancellationToken).ConfigureAwait(false);
-                    if (format is not null)
+                case OptionsMenu.Format:
+                    var format = Tui.Choose(_console, "Formato de salida:", FormatName,
+                        [OutputFormat.Json, OutputFormat.Ndjson], cancellationToken);
+                    _options = _options with { OutputFormat = format };
+                    break;
+                case OptionsMenu.Verbose:
+                    _options = _options with
                     {
-                        _options = _options with { OutputFormat = format.Value };
-                    }
+                        Verbose = Tui.Confirm(_console, "Verbose", _options.Verbose, cancellationToken),
+                    };
                     break;
-                case "3":
-                    _options = _options with { Verbose = !_options.Verbose };
+                case OptionsMenu.Strict:
+                    _options = _options with
+                    {
+                        StrictValidation = Tui.Confirm(_console, "Validacion estricta", _options.StrictValidation, cancellationToken),
+                    };
                     break;
-                case "4":
-                    _options = _options with { StrictValidation = !_options.StrictValidation };
+                case OptionsMenu.Quiet:
+                    _options = _options with
+                    {
+                        Quiet = Tui.Confirm(_console, "Quiet (solo errores y resumen)", _options.Quiet, cancellationToken),
+                    };
                     break;
-                case "5":
-                    _options = _options with { Quiet = !_options.Quiet };
-                    break;
-                case "6":
-                    _options = _options with { NoColor = !_options.NoColor };
-                    break;
-                default:
-                    _output.WriteLine("Opcion no valida.");
+                case OptionsMenu.NoColor:
+                    _options = _options with
+                    {
+                        NoColor = Tui.Confirm(_console, "Sin colores", _options.NoColor, cancellationToken),
+                    };
+                    // La nueva opcion se refleja recreando la consola TUI.
+                    _console = _createConsole(_options);
                     break;
             }
         }
     }
 
-    private async Task EditOutputFileAsync(CancellationToken cancellationToken)
+    private void EditOutputFile(CancellationToken cancellationToken)
     {
-        var answer = await PromptAsync(
-            $"Archivo de salida (Enter mantiene, '-' usa el automatico) [{_options.OutputFile ?? "automatico"}]: ",
-            cancellationToken).ConfigureAwait(false);
+        var answer = Tui.AskTextOptional(_console,
+            "Archivo de salida (Enter mantiene, '-' usa el automatico)", cancellationToken).Trim();
 
-        var path = answer.Trim();
-        if (path == "-")
+        if (answer == "-")
         {
             _options = _options with { OutputFile = null };
         }
-        else if (path.Length > 0)
+        else if (answer.Length > 0)
         {
-            _options = _options with { OutputFile = path };
+            _options = _options with { OutputFile = answer };
         }
     }
 
-    /// <summary>Pide el formato de salida; Enter (vacio) mantiene el valor actual.</summary>
-    private async Task<OutputFormat?> ReadFormatAsync(CancellationToken cancellationToken)
+    private string FormatMainMenu(MainMenu item) => item switch
     {
-        while (true)
-        {
-            var answer = (await PromptAsync("Formato (json|ndjson): ", cancellationToken).ConfigureAwait(false))
-                .Trim()
-                .ToLowerInvariant();
+        MainMenu.Run => $"[cyan]1)[/] Ejecutar requests  [grey](config: {Tui.Esc(_options.ConfigFile)})[/]",
+        MainMenu.Config => "[cyan]2)[/] Elegir archivo de configuracion",
+        MainMenu.Options => "[cyan]3)[/] Opciones de ejecucion",
+        MainMenu.Wizard => "[cyan]4)[/] Ejecutar un request (paso a paso)",
+        MainMenu.Help => "[cyan]5)[/] Ver ayuda",
+        _ => "[cyan]0)[/] Salir",
+    };
 
-            switch (answer)
-            {
-                case "":
-                    return null;
-                case "json":
-                    return OutputFormat.Json;
-                case "ndjson":
-                    return OutputFormat.Ndjson;
-                default:
-                    _output.WriteLine("Formato invalido: use 'json' o 'ndjson'.");
-                    break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Escribe el prompt y lee una linea. Lanza <see cref="OperationCanceledException"/>
-    /// si se cancela y <see cref="EndOfStreamException"/> si se acaba la entrada.
-    /// </summary>
-    private async Task<string> PromptAsync(string label, CancellationToken cancellationToken)
+    private string FormatOptionsMenu(OptionsMenu item) => item switch
     {
-        _output.Write(label);
-
-        var line = await ReadLineAsync(cancellationToken).ConfigureAwait(false);
-        if (line is not null)
-        {
-            return line;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        throw new EndOfStreamException();
-    }
-
-    /// <summary>
-    /// Lee una linea sin dejar bloqueada la cancelacion: si llega Ctrl+C mientras
-    /// la consola espera input, se abandona la lectura (la tarea huerfana ya no se
-    /// usa porque la aplicacion esta saliendo).
-    /// </summary>
-    private async Task<string?> ReadLineAsync(CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-
-        // El token no se reenvia a ReadLineAsync a proposito: la lectura de la
-        // consola no es cancelable, asi que la cancelacion se resuelve abajo con
-        // Task.WhenAny. CancellationToken.None lo deja explicito para el analizador.
-        var readTask = _input.ReadLineAsync(CancellationToken.None).AsTask();
-        if (readTask.IsCompleted)
-        {
-            return await readTask.ConfigureAwait(false);
-        }
-
-        var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = cancellationToken.Register(() => cancelled.TrySetResult(true));
-
-        if (await Task.WhenAny(readTask, cancelled.Task).ConfigureAwait(false) == readTask)
-        {
-            return await readTask.ConfigureAwait(false);
-        }
-
-        // Lectura abandonada por cancelacion: se observa cualquier fallo futuro
-        // para no dejar una excepcion sin mirar.
-        _ = readTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
-        return null;
-    }
+        OptionsMenu.Output => $"[cyan]1)[/] Archivo de salida  [grey]({_options.OutputFile ?? "automatico"})[/]",
+        OptionsMenu.Format => $"[cyan]2)[/] Formato  [grey]({FormatName(_options.OutputFormat)})[/]",
+        OptionsMenu.Verbose => $"[cyan]3)[/] Verbose  [grey]({OnOff(_options.Verbose)})[/]",
+        OptionsMenu.Strict => $"[cyan]4)[/] Strict  [grey]({OnOff(_options.StrictValidation)})[/]",
+        OptionsMenu.Quiet => $"[cyan]5)[/] Quiet  [grey]({OnOff(_options.Quiet)})[/]",
+        OptionsMenu.NoColor => $"[cyan]6)[/] Sin colores  [grey]({OnOff(_options.NoColor)})[/]",
+        _ => "[cyan]0)[/] Volver al menu",
+    };
 
     private static string OnOff(bool value) => value ? "si" : "no";
 
     private static string FormatName(OutputFormat format) =>
         format == OutputFormat.Ndjson ? "ndjson" : "json";
 }
-

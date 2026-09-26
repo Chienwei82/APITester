@@ -7,10 +7,10 @@ namespace APITester.Core.Services;
 /// </summary>
 public static class HttpMethods
 {
-    private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"
-    };
+    /// <summary>Metodos soportados, en el orden en que se presentan al usuario.</summary>
+    public static readonly string[] All = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+    private static readonly HashSet<string> Supported = new(All, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> WithBody = new(StringComparer.OrdinalIgnoreCase)
     {

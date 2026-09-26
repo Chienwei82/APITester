@@ -93,7 +93,14 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
+            if (string.IsNullOrEmpty(summary.OutputFile))
+            {
+                Console.WriteLine();
+            }
+            else
+            {
+                WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
+            }
             Console.WriteLine($"Tiempo total: {summary.TotalElapsedMs}ms");
             Console.WriteLine($"Requests: {summary.TotalRequests} ejecutados, {summary.SuccessfulRequests} exitosos, {summary.FailedRequests} con error");
         }

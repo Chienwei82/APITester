@@ -1,8 +1,8 @@
 namespace APITester.Rest;
 
 /// <summary>
-/// Coordinacion de Ctrl+C en consola. Mientras hay una ejecucion en curso (modo
-/// interactivo), Ctrl+C cancela solo esa ejecucion para poder volver al menu;
+/// Coordinacion de Ctrl+C en consola. Mientras hay una ejecucion en curso (CLI
+/// directa o run del menu interactivo), Ctrl+C cancela solo esa ejecucion;
 /// fuera de una ejecucion cancela la aplicacion completa.
 /// </summary>
 public sealed class CtrlCCoordinator : IDisposable
@@ -12,6 +12,14 @@ public sealed class CtrlCCoordinator : IDisposable
 
     /// <summary>Token de la aplicacion: se cancela con Ctrl+C si no hay ejecucion en curso.</summary>
     public CancellationToken Token => _appCts.Token;
+
+    /// <summary>
+    /// True mientras hay una ejecucion en curso (CLI directa o run del menu).
+    /// Program usa esta bandera para saber si Ctrl+C debe cancelarse de forma
+    /// elegante (el pipeline lo observa) o debe matar el proceso (en un prompt
+    /// de la sesion interactiva, que no se puede interrumpir con tokens).
+    /// </summary>
+    public bool HasActiveRun => _runCts is not null;
 
     /// <summary>
     /// Ejecuta <paramref name="run"/> con un token propio: Ctrl+C lo cancela a el

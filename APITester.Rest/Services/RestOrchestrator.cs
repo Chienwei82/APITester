@@ -3,6 +3,7 @@ using APITester.Core.Models;
 using APITester.Core.Services;
 using APITester.Rest.Models;
 using APITester.Rest.Services;
+using Spectre.Console;
 
 namespace APITester.Rest;
 
@@ -51,7 +52,11 @@ public static class RestOrchestrator
             return await RunInteractiveAsync(cliArgs, ctrlC).ConfigureAwait(false);
         }
 
-        return await RunAsync(cliArgs, cancellationToken).ConfigureAwait(false);
+        // CLI directa: se ejecuta como run cancelable para que Ctrl+C cancele el
+        // pipeline de forma elegante (aqui no hay prompts de la sesion en juego).
+        return ctrlC is not null
+            ? await ctrlC.RunCancellableAsync(runToken => RunAsync(cliArgs, runToken)).ConfigureAwait(false)
+            : await RunAsync(cliArgs, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -97,25 +102,79 @@ public static class RestOrchestrator
             return 1;
         }
 
-        return await ExecuteRequestsAsync(requests, cliArgs, presenter, cancellationToken).ConfigureAwait(false);
+        return await ExecuteRequestsAsync(requests, cliArgs, cliArgs.OutputFile ?? DefaultOutputFile, presenter, cancellationToken).ConfigureAwait(false);
     }
 
     private static Task<int> RunInteractiveAsync(CliArgs initialOptions, CtrlCCoordinator ctrlC)
     {
-        var session = new InteractiveSession(Console.In, Console.Out, initialOptions);
+        var session = new InteractiveSession(CreateConsole(initialOptions), CreateConsole, initialOptions);
 
         // Ctrl+C durante una ejecucion cancela solo esa ejecucion
-        // (RunCancellableAsync) y vuelve al menu; en los prompts del menu cancela
-        // el token de la sesion y la sesion termina.
+        // (RunCancellableAsync) y vuelve al menu; en los prompts del menu el
+        // proceso sale directamente (ver Program.cs y CtrlCCoordinator).
         Task<int> Execute(CliArgs cli) =>
             ctrlC.RunCancellableAsync(runToken => RunAsync(cli, runToken));
 
-        return session.RunAsync(Execute, ctrlC.Token);
+        Task<int> RunSingle(RestRequestConfig request, CliArgs cli) =>
+            ctrlC.RunCancellableAsync(runToken => RunSingleRequestAsync(request, cli, runToken));
+
+        return session.RunAsync(Execute, RunSingle, ctrlC.Token);
     }
 
+    /// <summary>
+    /// Consola TUI de la sesion interactiva: con --no-color o la variable
+    /// NO_COLOR se crea sin ANSI; en el resto de casos se usa la consola global
+    /// de Spectre, que detecta sola la terminal, el CI y sus capacidades.
+    /// </summary>
+    private static IAnsiConsole CreateConsole(CliArgs options)
+    {
+        var noColor = options.NoColor || Environment.GetEnvironmentVariable("NO_COLOR") is { Length: > 0 };
+        return noColor
+            ? AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.No,
+                Interactive = InteractionSupport.Yes,
+                Out = new AnsiConsoleOutput(Console.Out),
+            })
+            : AnsiConsole.Console;
+    }
+
+    /// <summary>
+    /// Ejecuta un unico request ad-hoc (el del asistente interactivo) con el
+    /// mismo pipeline que la CLI: advertencias de validacion, ejecucion,
+    /// guardado (solo si el request define 'output') y resumen.
+    /// </summary>
+    public static Task<int> RunSingleRequestAsync(
+        RestRequestConfig request,
+        CliArgs cliArgs,
+        CancellationToken cancellationToken = default)
+    {
+        var presenter = new ConsolePresenter(!cliArgs.Quiet, !cliArgs.NoColor);
+
+        var warnings = CollectWarnings([request]);
+        if (warnings.Count > 0)
+        {
+            presenter.PrintValidationWarnings(warnings);
+        }
+
+        if (cliArgs.StrictValidation && warnings.Count > 0)
+        {
+            presenter.PrintFatalError("Modo estricto: hay advertencias de validacion. La ejecucion se detiene.");
+            return Task.FromResult(1);
+        }
+
+        return ExecuteRequestsAsync([request], cliArgs, request.Output, presenter, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ejecuta los requests en orden y guarda los resultados. Si
+    /// <paramref name="defaultOutput"/> es null no se escribe ningun archivo
+    /// (request ad-hoc del asistente interactivo sin 'output').
+    /// </summary>
     private static async Task<int> ExecuteRequestsAsync(
         List<RestRequestConfig> requests,
         CliArgs cliArgs,
+        string? defaultOutput,
         ConsolePresenter presenter,
         CancellationToken cancellationToken)
     {
@@ -126,12 +185,14 @@ public static class RestOrchestrator
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 
-        var defaultOutput = cliArgs.OutputFile ?? DefaultOutputFile;
-        await SaveResultsAsync(results, requests, defaultOutput, cliArgs.OutputFormat).ConfigureAwait(false);
+        if (defaultOutput is not null)
+        {
+            await SaveResultsAsync(results, requests, defaultOutput, cliArgs.OutputFormat).ConfigureAwait(false);
+        }
 
         var summary = new ExecutionSummary
         {
-            OutputFile = defaultOutput,
+            OutputFile = defaultOutput ?? string.Empty,
             TotalElapsedMs = totalSw.ElapsedMilliseconds,
             TotalRequests = results.Count,
             SuccessfulRequests = results.Count(r => r.Response is not null),
