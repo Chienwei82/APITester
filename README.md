@@ -10,18 +10,32 @@ Requiere .NET SDK 10.0+ ([descargar](https://dotnet.microsoft.com/download)).
 
 ## Uso rapido
 
+### Modo interactivo
+
 ```bash
 cd APITester.Rest
 dotnet run
 ```
 
-Usa `rest-config.json` por defecto y ejecuta los requests definidos ahi, guardando cada respuesta en su archivo `output`.
+Sin argumentos, la app abre un menu en consola:
+
+1. **Ejecutar requests** — ejecuta la configuracion seleccionada y vuelve al menu.
+2. **Elegir archivo de configuracion** — cambia el JSON de requests.
+3. **Opciones de ejecucion** — salida, concurrencia, formato, verbose, strict, quiet y sin colores.
+4. **Ver ayuda**
+0. **Salir**
+
+Ctrl+C durante una ejecucion cancela solo esa ejecucion y te devuelve al menu; en el menu, Ctrl+C sale de la aplicacion. Si la entrada esta redirigida (pipes, CI), sin argumentos se ejecuta directamente `rest-config.json` para no bloquear scripts.
 
 ### Linea de comandos
+
+Para ejecutar sin menu, pasa argumentos (despues de `--`):
 
 ```
 dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
 ```
+
+Con `-c rest-config.json` (o sin `-c`, usando ese archivo) ejecuta los requests definidos ahi, guardando cada respuesta en su archivo `output`.
 
 | Argumento | Descripcion |
 |---|---|
@@ -257,9 +271,10 @@ APITester.slnx
 │   └── Services/            ← ConfigValidator, ConsolePresenter, EnvVarResolver,
 │                               GenericConfigLoader, JsonFormatter, RetryPolicy, etc.
 ├── APITester.Rest           ← Implementacion REST
-│   ├── Program.cs           ← Punto de entrada
+│   ├── Program.cs           ← Punto de entrada (CLI o modo interactivo)
 │   ├── Models/              ← RestRequestConfig, RestConfigDefaults
-│   └── Services/            ← HttpExecutor, RestConfigLoader, RequestExecutor
+│   └── Services/            ← RestOrchestrator, InteractiveSession, CtrlCCoordinator,
+│                               HttpExecutor, RestConfigLoader, RequestExecutor
 └── APITester.Tests          ← Tests unitarios
 ```
 

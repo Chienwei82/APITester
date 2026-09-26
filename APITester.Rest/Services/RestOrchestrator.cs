@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using APITester.Core.Models;
 using APITester.Core.Services;
 using APITester.Rest.Models;
@@ -7,14 +6,31 @@ using APITester.Rest.Services;
 
 namespace APITester.Rest;
 
-public class RestOrchestrator
+public static class RestOrchestrator
 {
-    public static async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
+    private const string DefaultConfigFile = "rest-config.json";
+    private const string DefaultOutputFile = "rest-response.json";
+
+    /// <summary>
+    /// Entrada de la CLI: coordina Ctrl+C y, cuando se invoca sin argumentos y con
+    /// la entrada de consola disponible, abre el modo interactivo.
+    /// </summary>
+    public static Task<int> RunCliAsync(string[] args, CtrlCCoordinator ctrlC) =>
+        RunAsync(args, ctrlC, ctrlC.Token);
+
+    /// <summary>
+    /// Ejecucion directa, sin menu interactivo (tests e integracion): parsea los
+    /// argumentos y ejecuta el pipeline con el token recibido.
+    /// </summary>
+    public static Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default) =>
+        RunAsync(args, ctrlC: null, cancellationToken);
+
+    private static async Task<int> RunAsync(string[] args, CtrlCCoordinator? ctrlC, CancellationToken cancellationToken)
     {
         CliArgs cliArgs;
         try
         {
-            cliArgs = ArgumentParser.Parse(args, "rest-config.json");
+            cliArgs = ArgumentParser.Parse(args, DefaultConfigFile);
         }
         catch (ArgumentException ex)
         {
@@ -22,11 +38,33 @@ public class RestOrchestrator
             return 1;
         }
 
+        if (cliArgs.ShowHelp)
+        {
+            new ConsolePresenter().PrintHelp("REST", DefaultConfigFile);
+            return 0;
+        }
+
+        // Solo la entrada de la CLI (con coordinador de Ctrl+C) abre el menu: asi
+        // las llamadas programaticas nunca se bloquean esperando input de consola.
+        if (ctrlC is not null && args.Length == 0 && !Console.IsInputRedirected)
+        {
+            return await RunInteractiveAsync(cliArgs, ctrlC).ConfigureAwait(false);
+        }
+
+        return await RunAsync(cliArgs, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Pipeline compartido por la CLI y el modo interactivo: carga la configuracion,
+    /// la valida, ejecuta los requests y guarda las respuestas.
+    /// </summary>
+    public static async Task<int> RunAsync(CliArgs cliArgs, CancellationToken cancellationToken = default)
+    {
         var presenter = new ConsolePresenter(!cliArgs.Quiet, !cliArgs.NoColor);
 
         if (cliArgs.ShowHelp)
         {
-            presenter.PrintHelp("REST", "rest-config.json");
+            presenter.PrintHelp("REST", DefaultConfigFile);
             return 0;
         }
 
@@ -41,11 +79,11 @@ public class RestOrchestrator
             return 1;
         }
 
-        var warnings = requests
-            .SelectMany((r, i) => r.Validate().Select(w => $"[{i + 1}] {w}"))
-            .ToList();
+        var warnings = CollectWarnings(requests);
         if (warnings.Count > 0)
+        {
             presenter.PrintValidationWarnings(warnings);
+        }
 
         if (cliArgs.StrictValidation && warnings.Count > 0)
         {
@@ -62,6 +100,19 @@ public class RestOrchestrator
         return await ExecuteRequestsAsync(requests, cliArgs, presenter, cancellationToken).ConfigureAwait(false);
     }
 
+    private static Task<int> RunInteractiveAsync(CliArgs initialOptions, CtrlCCoordinator ctrlC)
+    {
+        var session = new InteractiveSession(Console.In, Console.Out, initialOptions);
+
+        // Ctrl+C durante una ejecucion cancela solo esa ejecucion
+        // (RunCancellableAsync) y vuelve al menu; en los prompts del menu cancela
+        // el token de la sesion y la sesion termina.
+        Task<int> Execute(CliArgs cli) =>
+            ctrlC.RunCancellableAsync(runToken => RunAsync(cli, runToken));
+
+        return session.RunAsync(Execute, ctrlC.Token);
+    }
+
     private static async Task<int> ExecuteRequestsAsync(
         List<RestRequestConfig> requests,
         CliArgs cliArgs,
@@ -72,26 +123,11 @@ public class RestOrchestrator
 
         using var executor = new HttpExecutor();
         var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.MaxConcurrency, cliArgs.Verbose);
-
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 
-        var defaultOutput = cliArgs.OutputFile ?? "rest-response.json";
-        var plan = BuildWritePlan(results, requests, defaultOutput);
-
-        if (cliArgs.OutputFormat == OutputFormat.Ndjson)
-        {
-            foreach (var (path, group) in plan.Overwrite)
-                await JsonFormatter.SaveToFileNdjsonAsync(path, group).ConfigureAwait(false);
-        }
-        else
-        {
-            foreach (var (path, group) in plan.Overwrite)
-                await JsonFormatter.SaveToFileAsync(path, group).ConfigureAwait(false);
-        }
-
-        foreach (var (path, response) in plan.Appends)
-            await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
+        var defaultOutput = cliArgs.OutputFile ?? DefaultOutputFile;
+        await SaveResultsAsync(results, requests, defaultOutput, cliArgs.OutputFormat).ConfigureAwait(false);
 
         var summary = new ExecutionSummary
         {
@@ -107,7 +143,29 @@ public class RestOrchestrator
         return summary.FailedRequests > 0 ? 1 : 0;
     }
 
-    /// <summary>Plan de escritura: resultados no-append agrupados por archivo y appends individuales.</summary>
+    /// <summary>Escribe los resultados siguiendo el plan de escritura.</summary>
+    private static async Task SaveResultsAsync(
+        List<ApiResponse> results,
+        List<RestRequestConfig> requests,
+        string defaultOutput,
+        OutputFormat format)
+    {
+        var plan = BuildWritePlan(results, requests, defaultOutput);
+
+        foreach (var (path, group) in plan.Overwrite)
+        {
+            await JsonFormatter.SaveAsync(path, group, format).ConfigureAwait(false);
+        }
+
+        foreach (var (path, response) in plan.Appends)
+        {
+            await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
+        }
+    }
+
+    private static List<string> CollectWarnings(List<RestRequestConfig> requests) =>
+        requests.SelectMany((r, i) => r.Validate().Select(w => $"[{i + 1}] {w}")).ToList();
+
     public record WritePlan
     {
         public required Dictionary<string, List<ApiResponse>> Overwrite { get; init; }
@@ -115,8 +173,9 @@ public class RestOrchestrator
     }
 
     /// <summary>
-    /// Agrupa resultados por archivo de salida para que varios requests con el mismo 'output'
-    /// se escriban de una sola vez (evitando que cada escritura pise a la anterior).
+    /// Agrupa los resultados por archivo de salida para que varios requests con el
+    /// mismo 'output' se escriban de una sola vez (sin que cada escritura pise a la
+    /// anterior) y deja aparte los que van en modo append.
     /// </summary>
     public static WritePlan BuildWritePlan(
         List<ApiResponse> results,
@@ -138,11 +197,13 @@ public class RestOrchestrator
                 continue;
             }
 
-            var group = overwriteGroups.TryGetValue(requestOutput, out var existing)
-                ? existing
-                : new List<ApiResponse>();
+            if (!overwriteGroups.TryGetValue(requestOutput, out var group))
+            {
+                group = [];
+                overwriteGroups[requestOutput] = group;
+            }
+
             group.Add(result);
-            overwriteGroups[requestOutput] = group;
         }
 
         return new WritePlan { Overwrite = overwriteGroups, Appends = appends };

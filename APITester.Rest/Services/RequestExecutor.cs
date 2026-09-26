@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Threading;
 using APITester.Core.Models;
 using APITester.Core.Services;
 using APITester.Rest.Models;
@@ -7,7 +5,7 @@ using APITester.Rest.Services;
 
 namespace APITester.Rest;
 
-public class RequestExecutor
+public sealed class RequestExecutor
 {
     private readonly HttpExecutor _executor;
     private readonly int _maxConcurrency;
@@ -22,33 +20,27 @@ public class RequestExecutor
         _verbose = verbose;
     }
 
+    /// <summary>
+    /// Ejecuta los requests con un limite de concurrencia. Cada resultado se guarda
+    /// en su posicion, de modo que el orden final es el del archivo de configuracion
+    /// aunque las respuestas terminen en diferente orden.
+    /// </summary>
     public async Task<List<ApiResponse>> ExecuteAllAsync(
         List<RestRequestConfig> requests,
         CancellationToken cancellationToken = default)
     {
-        var semaphore = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
+        var results = new ApiResponse[requests.Count];
         var completedCount = 0;
 
-        var indexedTasks = requests.Select(async (config, i) =>
+        using var semaphore = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
+
+        await Task.WhenAll(requests.Select(async (config, index) =>
         {
             await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var label = config.Name ?? $"{config.Method} {config.Url}";
-                _presenter.PrintRequestHeader(label, i, requests.Count);
-
-                var result = await _executor.ExecuteAsync(config, cancellationToken).ConfigureAwait(false);
-                _presenter.PrintResponseSummary(result);
-
-                if (_verbose)
-                {
-                    _presenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
-                    _presenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
-                    _presenter.PrintVerboseLine("Cert", config.Cert?.Path);
-                    _presenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
-                }
-
-                return (index: i, result);
+                results[index] = await ExecuteOneAsync(config, index, requests.Count, cancellationToken)
+                    .ConfigureAwait(false);
             }
             finally
             {
@@ -56,14 +48,32 @@ public class RequestExecutor
                 var completed = Interlocked.Increment(ref completedCount);
                 _presenter.PrintProgress(completed, requests.Count);
             }
-        });
+        })).ConfigureAwait(false);
 
-        var indexedResults = await Task.WhenAll(indexedTasks).ConfigureAwait(false);
+        return [.. results];
+    }
 
-        return indexedResults
-            .OrderBy(r => r.index)
-            .Select(r => r.result)
-            .ToList();
+    private async Task<ApiResponse> ExecuteOneAsync(
+        RestRequestConfig config,
+        int index,
+        int total,
+        CancellationToken cancellationToken)
+    {
+        var label = config.Name ?? $"{config.Method} {config.Url}";
+        _presenter.PrintRequestHeader(label, index, total);
+
+        var result = await _executor.ExecuteAsync(config, cancellationToken).ConfigureAwait(false);
+        _presenter.PrintResponseSummary(result);
+
+        if (_verbose)
+        {
+            _presenter.PrintVerboseLine("Query", BuildQueryPreview(config.Query));
+            _presenter.PrintVerboseLine("Body", BuildBodyPreview(config.Body));
+            _presenter.PrintVerboseLine("Cert", config.Cert?.Path);
+            _presenter.PrintVerboseLine("Retries", config.EffectiveRetries > 0 ? $"{config.EffectiveRetries} max" : null);
+        }
+
+        return result;
     }
 
     private static string? BuildQueryPreview(Dictionary<string, string>? q)

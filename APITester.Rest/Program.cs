@@ -3,16 +3,16 @@ using APITester.Rest;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var cts = new CancellationTokenSource();
+using var ctrlC = new CtrlCCoordinator();
 Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
-    cts.Cancel();
+    ctrlC.Cancel();
 };
 
 try
 {
-    return await RestOrchestrator.RunAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
+    return await RestOrchestrator.RunCliAsync(args, ctrlC);
 }
 catch (OperationCanceledException)
 {

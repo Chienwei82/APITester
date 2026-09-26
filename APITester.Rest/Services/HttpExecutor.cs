@@ -40,14 +40,6 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 
     public async Task<ApiResponse> ExecuteAsync(RestRequestConfig config, CancellationToken cancellationToken = default)
     {
-        var policy = new RetryPolicy
-        {
-            MaxRetries = config.EffectiveRetries,
-            DelayMs = config.EffectiveRetryDelayMilliseconds,
-            UseExponentialBackoff = config.UseExponentialBackoff,
-            RetryOnStatusCodes = config.RetryOnStatusCodes
-        };
-
         if (string.IsNullOrWhiteSpace(config.Url))
         {
             return new ApiResponse { Error = "La URL es requerida" };
@@ -55,6 +47,14 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
 
         try
         {
+            var policy = new RetryPolicy
+            {
+                MaxRetries = config.EffectiveRetries,
+                DelayMs = config.EffectiveRetryDelayMilliseconds,
+                UseExponentialBackoff = config.UseExponentialBackoff,
+                RetryOnStatusCodes = config.RetryOnStatusCodes
+            };
+
             return await policy.ExecuteAsync(
                 ct => ExecuteOnceAsync(config, ct),
                 _logger,
@@ -74,35 +74,40 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         }
     }
 
-    private async Task<ApiResponse> ExecuteOnceAsync(RestRequestConfig config, CancellationToken cancellationToken = default)
+    private async Task<ApiResponse> ExecuteOnceAsync(RestRequestConfig config, CancellationToken cancellationToken)
     {
-        var response = new ApiResponse
+        // Build resuelve y valida los headers (puede lanzar InvalidOperationException)
+        // y devuelve los headers que viajan en el request: los mismos que se registran.
+        var (request, sentHeaders) = RequestBuilder.Build(config);
+
+        using (request)
         {
-            Request = new RequestInfo
+            var response = new ApiResponse
             {
-                Name = config.Name,
-                Url = config.Url,
-                Method = config.Method,
-                RequestHeaders = RequestBuilder.GetRequestHeaders(config)
-            }
-        };
+                Request = new RequestInfo
+                {
+                    Name = config.Name,
+                    Url = config.Url,
+                    Method = config.Method,
+                    RequestHeaders = sentHeaders
+                }
+            };
 
-        using var request = RequestBuilder.Build(config);
+            var client = CertHandlerFactory.Create(config.Cert) ?? _httpClient;
 
-        var client = CertHandlerFactory.Create(config.Cert) ?? _httpClient;
+            using var timeoutCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, timeoutCts.Token);
 
-        using var timeoutCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(config.EffectiveTimeoutInSeconds));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, timeoutCts.Token);
+            var sw = Stopwatch.StartNew();
+            using var httpResponse = await client.SendAsync(
+                request, linkedCts.Token).ConfigureAwait(false);
+            sw.Stop();
 
-        var sw = Stopwatch.StartNew();
-        using var httpResponse = await client.SendAsync(
-            request, linkedCts.Token).ConfigureAwait(false);
-        sw.Stop();
-
-        await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes).ConfigureAwait(false);
-        return response;
+            await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes).ConfigureAwait(false);
+            return response;
+        }
     }
 
     private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw, long bodyLimit)
@@ -152,16 +157,10 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
             total += toWrite;
         }
 
-        // Si quedó contenido por leer, fue truncado.
-        if (total < limit)
-        {
-            var trailing = await stream.ReadAsync(buffer).ConfigureAwait(false);
-            return (ms.ToArray(), trailing > 0);
-        }
-
-        // El limite se alcanzó exactamente; confirmar si hay más.
-        var extra = await stream.ReadAsync(buffer).ConfigureAwait(false);
-        return (ms.ToArray(), extra > 0);
+        // Sea cual sea el motivo por el que paro el bucle (limite o fin del body),
+        // una lectura extra basta para saber si quedo contenido por leer.
+        var trailing = await stream.ReadAsync(buffer).ConfigureAwait(false);
+        return (ms.ToArray(), trailing > 0);
     }
 
     private static void TrySetJsonBody(string rawBody, ResponseInfo response)

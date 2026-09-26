@@ -38,16 +38,12 @@ public class RestRequestConfig
     {
         if (defaults is null) return;
 
-        if (Headers is null && defaults.Headers is not null)
-            Headers = defaults.Headers;
-        if (Query is null && defaults.Query is not null)
-            Query = defaults.Query;
-        if (TimeoutInSeconds is null && defaults.TimeoutInSeconds.HasValue)
-            TimeoutInSeconds = defaults.TimeoutInSeconds.Value;
-        if (Retries is null && defaults.Retries.HasValue)
-            Retries = defaults.Retries.Value;
-        if (RetryDelayMilliseconds is null && defaults.RetryDelayMilliseconds.HasValue)
-            RetryDelayMilliseconds = defaults.RetryDelayMilliseconds.Value;
+        Headers ??= defaults.Headers;
+        Query ??= defaults.Query;
+        TimeoutInSeconds ??= defaults.TimeoutInSeconds;
+        Retries ??= defaults.Retries;
+        RetryDelayMilliseconds ??= defaults.RetryDelayMilliseconds;
+
         if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             Url = defaults.BaseUrl.TrimEnd('/') + "/" + Url.TrimStart('/');
     }
@@ -63,10 +59,10 @@ public class RestRequestConfig
         var certError = ConfigValidator.ValidateCert(Cert);
         if (certError is not null) yield return certError;
 
-        if (!IsValidMethod(Method))
+        if (!HttpMethods.IsSupported(Method))
             yield return $"Metodo HTTP '{Method}' no soportado";
 
-        if (!string.IsNullOrEmpty(Body) && !HasBody(Method))
+        if (!string.IsNullOrEmpty(Body) && !HttpMethods.AllowsBody(Method))
             yield return $"El metodo '{Method}' no soporta body";
     }
 
@@ -81,12 +77,6 @@ public class RestRequestConfig
 
     /// <summary>Limite de bytes a leer del body de la respuesta (default 4MB).</summary>
     public long EffectiveMaxBodyBytes => MaxBodyBytes ?? 4 * 1024 * 1024;
-
-    private static bool HasBody(string method) =>
-        method.ToUpperInvariant() is "POST" or "PUT" or "PATCH";
-
-    private static bool IsValidMethod(string method) =>
-        method.ToUpperInvariant() is "GET" or "POST" or "PUT" or "PATCH" or "DELETE" or "HEAD" or "OPTIONS";
 }
 
 public class RestConfigDefaults

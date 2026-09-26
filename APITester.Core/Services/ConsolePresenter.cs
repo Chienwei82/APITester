@@ -17,7 +17,6 @@ public sealed class ConsolePresenter
     public static readonly object OutputLock = new();
 
     private int _completedCount;
-    private int _totalCount;
     private readonly bool _showProgress;
     private readonly bool _useColors;
 
@@ -34,22 +33,14 @@ public sealed class ConsolePresenter
             if (index == 0)
             {
                 _completedCount = 0;
-                _totalCount = total;
             }
             if (_showProgress && total > 1)
             {
                 PrintProgressBar(_completedCount, total);
             }
-            if (_useColors)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"[{index + 1}/{total}] ");
-                Console.ResetColor();
-            }
-            else
-            {
-                Console.Write($"[{index + 1}/{total}] ");
-            }
+
+            // Prefijo en color y etiqueta sin color, escritos de forma atomica.
+            Write($"[{index + 1}/{total}] ", ConsoleColor.Cyan, newLine: false);
             Console.WriteLine(label);
         }
     }
@@ -125,26 +116,29 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            Console.WriteLine($"API Tester — Cliente {protocol} portable");
-            Console.WriteLine();
-            Console.WriteLine("Uso:");
-            Console.WriteLine($"  dotnet run -- -c archivo.json [-o salida.json] [-v] [-j N] [--format json|ndjson] [--strict] [--quiet] [--no-color]");
-            Console.WriteLine();
-            Console.WriteLine("Argumentos:");
-            Console.WriteLine($"  -c, --config       Archivo JSON (default: {defaultConfig})");
-            Console.WriteLine("  -o, --output       Archivo de salida");
-            Console.WriteLine("  -j, --jobs N       Concurrencia maxima (default: 4, max: 100)");
-            Console.WriteLine("  -v, --verbose      Muestra detalles adicionales");
-            Console.WriteLine("  --format FORMAT    Formato salida: json o ndjson (default: json)");
-            Console.WriteLine("  --strict           Fallar si hay advertencias de validacion");
-            Console.WriteLine("  --quiet            Solo mostrar errores y resumen final");
-            Console.WriteLine("  --no-color         Deshabilitar salida con colores");
-            Console.WriteLine("  -h, --help         Muestra esta ayuda");
-            Console.WriteLine();
-            Console.WriteLine("Variables de entorno:");
-            Console.WriteLine("  Usa ${NOMBRE_VAR} en el JSON para sustituir con variables de entorno.");
-            Console.WriteLine("  Soporta default: ${VAR:-default}");
-            Console.WriteLine();
+            Console.WriteLine($$"""
+                API Tester — Cliente {{protocol}} portable
+
+                Uso:
+                  dotnet run              Abre el modo interactivo (menu en consola)
+                  dotnet run -- -c archivo.json [-o salida.json] [-v] [-j N] [--format json|ndjson] [--strict] [--quiet] [--no-color]
+
+                Argumentos:
+                  -c, --config       Archivo JSON (default: {{defaultConfig}})
+                  -o, --output       Archivo de salida
+                  -j, --jobs N       Concurrencia maxima (default: 4, max: 100)
+                  -v, --verbose      Muestra detalles adicionales
+                  --format FORMAT    Formato salida: json o ndjson (default: json)
+                  --strict           Fallar si hay advertencias de validacion
+                  --quiet            Solo mostrar errores y resumen final
+                  --no-color         Deshabilitar salida con colores
+                  -h, --help         Muestra esta ayuda
+
+                Variables de entorno:
+                  Usa ${NOMBRE_VAR} en el JSON para sustituir con variables de entorno.
+                  Soporta default: ${VAR:-default}
+
+                """);
         }
     }
 
@@ -165,19 +159,34 @@ public sealed class ConsolePresenter
             WriteLineColored($"  ADVERTENCIA: {w}", ConsoleColor.Yellow);
     }
 
-    private void WriteLineColored(string text, ConsoleColor color)
+    private void WriteLineColored(string text, ConsoleColor color) =>
+        Write(text, color, newLine: true);
+
+    /// <summary>
+    /// Escribe texto con el color indicado bajo <see cref="OutputLock"/>, de modo que
+    /// la secuencia color/escritura/reset sea atomica entre hilos.
+    /// </summary>
+    private void Write(string text, ConsoleColor color, bool newLine)
     {
         lock (OutputLock)
         {
             if (_useColors)
             {
                 Console.ForegroundColor = color;
+            }
+
+            if (newLine)
+            {
                 Console.WriteLine(text);
-                Console.ResetColor();
             }
             else
             {
-                Console.WriteLine(text);
+                Console.Write(text);
+            }
+
+            if (_useColors)
+            {
+                Console.ResetColor();
             }
         }
     }

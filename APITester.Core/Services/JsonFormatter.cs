@@ -1,49 +1,45 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using APITester.Core.Models;
 
 namespace APITester.Core.Services;
 
 public static class JsonFormatter
 {
-    private static readonly JsonSerializerOptions Options = new()
+    private static readonly JsonSerializerOptions IndentedOptions = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    private static readonly JsonSerializerOptions NdjsonOptions = new()
+    private static readonly JsonSerializerOptions CompactOptions = new()
     {
         WriteIndented = false,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static async Task SaveToFileAsync(string filePath, List<ApiResponse> results)
-    {
-        object outputData = results.Count == 1 ? results[0] : results;
-
-        var json = JsonSerializer.Serialize(outputData, Options);
-        EnsureDirectoryExists(filePath);
-        await File.WriteAllTextAsync(filePath, json, Encoding.UTF8).ConfigureAwait(false);
-    }
-
-    public static async Task SaveToFileNdjsonAsync(string filePath, List<ApiResponse> results)
+    /// <summary>Escribe todos los resultados de un archivo de salida en el formato indicado.</summary>
+    public static async Task SaveAsync(string filePath, List<ApiResponse> results, OutputFormat format)
     {
         EnsureDirectoryExists(filePath);
-        using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
 
-        for (int i = 0; i < results.Count; i++)
+        if (format == OutputFormat.Ndjson)
         {
-            var result = results[i];
-
-            var json = JsonSerializer.Serialize(result, NdjsonOptions);
-            await writer.WriteLineAsync(json).ConfigureAwait(false);
+            await using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
+            foreach (var result in results)
+                await writer.WriteLineAsync(JsonSerializer.Serialize(result, CompactOptions)).ConfigureAwait(false);
+            return;
         }
+
+        object outputData = results.Count == 1 ? results[0] : results;
+        var json = JsonSerializer.Serialize(outputData, IndentedOptions);
+        await File.WriteAllTextAsync(filePath, json, Encoding.UTF8).ConfigureAwait(false);
     }
 
     public static async Task AppendToFileAsync(string filePath, ApiResponse result)
     {
-        var json = JsonSerializer.Serialize(result, NdjsonOptions);
+        var json = JsonSerializer.Serialize(result, CompactOptions);
         EnsureDirectoryExists(filePath);
         await File.AppendAllTextAsync(filePath, json + Environment.NewLine, Encoding.UTF8).ConfigureAwait(false);
     }
