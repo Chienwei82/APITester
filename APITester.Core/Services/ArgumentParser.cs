@@ -43,9 +43,6 @@ public static class ArgumentParser
                 case "-o" or "--output":
                     cli = cli with { OutputFile = ReadValue("output", inlineValue, args, ref i) };
                     break;
-                case "-j" or "--jobs" or "--concurrency":
-                    cli = cli with { MaxConcurrency = ReadJobs("jobs", inlineValue, args, ref i) };
-                    break;
                 case "--format":
                     cli = cli with { OutputFormat = ReadFormat(inlineValue, args, ref i) };
                     break;
@@ -79,15 +76,6 @@ public static class ArgumentParser
         if (i + 1 < args.Length)
             return args[++i];
         throw new ArgumentException($"Falta un valor para '{flag}'");
-    }
-
-    private static int ReadJobs(string flag, string? inline, string[] args, ref int i)
-    {
-        var raw = ReadValue(flag, inline, args, ref i);
-        if (int.TryParse(raw, out var jobs) && jobs > 0 && jobs <= 100)
-            return jobs;
-        throw new ArgumentException(
-            $"Valor invalido para '{flag}': se espera un entero entre 1 y 100");
     }
 
     private static OutputFormat ReadFormat(string? inline, string[] args, ref int i)

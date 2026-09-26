@@ -8,49 +8,37 @@ namespace APITester.Rest;
 public sealed class RequestExecutor
 {
     private readonly HttpExecutor _executor;
-    private readonly int _maxConcurrency;
     private readonly bool _verbose;
     private readonly ConsolePresenter _presenter;
 
-    public RequestExecutor(HttpExecutor executor, ConsolePresenter presenter, int maxConcurrency, bool verbose)
+    public RequestExecutor(HttpExecutor executor, ConsolePresenter presenter, bool verbose)
     {
         _executor = executor;
         _presenter = presenter;
-        _maxConcurrency = maxConcurrency;
         _verbose = verbose;
     }
 
     /// <summary>
-    /// Ejecuta los requests con un limite de concurrencia. Cada resultado se guarda
-    /// en su posicion, de modo que el orden final es el del archivo de configuracion
-    /// aunque las respuestas terminen en diferente orden.
+    /// Ejecuta los requests uno por uno, en el orden del archivo de configuracion,
+    /// informando del resultado de cada uno y cerrando la barra de progreso al final.
     /// </summary>
     public async Task<List<ApiResponse>> ExecuteAllAsync(
         List<RestRequestConfig> requests,
         CancellationToken cancellationToken = default)
     {
-        var results = new ApiResponse[requests.Count];
-        var completedCount = 0;
+        var results = new List<ApiResponse>(requests.Count);
 
-        using var semaphore = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
-
-        await Task.WhenAll(requests.Select(async (config, index) =>
+        foreach (var config in requests)
         {
-            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                results[index] = await ExecuteOneAsync(config, index, requests.Count, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                semaphore.Release();
-                var completed = Interlocked.Increment(ref completedCount);
-                _presenter.PrintProgress(completed, requests.Count);
-            }
-        })).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return [.. results];
+            results.Add(await ExecuteOneAsync(config, results.Count, requests.Count, cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        _presenter.PrintProgress(results.Count, requests.Count);
+
+        return results;
     }
 
     private async Task<ApiResponse> ExecuteOneAsync(

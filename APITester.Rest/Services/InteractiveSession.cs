@@ -124,12 +124,11 @@ public sealed class InteractiveSession
             _output.WriteLine();
             _output.WriteLine("Opciones de ejecucion:");
             _output.WriteLine($"  1) Archivo de salida   [{_options.OutputFile ?? "automatico"}]");
-            _output.WriteLine($"  2) Concurrencia        [{_options.MaxConcurrency}]");
-            _output.WriteLine($"  3) Formato             [{FormatName(_options.OutputFormat)}]");
-            _output.WriteLine($"  4) Verbose             [{OnOff(_options.Verbose)}]");
-            _output.WriteLine($"  5) Strict              [{OnOff(_options.StrictValidation)}]");
-            _output.WriteLine($"  6) Quiet               [{OnOff(_options.Quiet)}]");
-            _output.WriteLine($"  7) Sin colores         [{OnOff(_options.NoColor)}]");
+            _output.WriteLine($"  2) Formato             [{FormatName(_options.OutputFormat)}]");
+            _output.WriteLine($"  3) Verbose             [{OnOff(_options.Verbose)}]");
+            _output.WriteLine($"  4) Strict              [{OnOff(_options.StrictValidation)}]");
+            _output.WriteLine($"  5) Quiet               [{OnOff(_options.Quiet)}]");
+            _output.WriteLine($"  6) Sin colores         [{OnOff(_options.NoColor)}]");
             _output.WriteLine("  0) Volver al menu");
 
             var option = (await PromptAsync("Opcion: ", cancellationToken).ConfigureAwait(false)).Trim();
@@ -141,30 +140,22 @@ public sealed class InteractiveSession
                     await EditOutputFileAsync(cancellationToken).ConfigureAwait(false);
                     break;
                 case "2":
-                    var jobs = await ReadIntAsync("Concurrencia (1-100): ", 1, 100, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (jobs is not null)
-                    {
-                        _options = _options with { MaxConcurrency = jobs.Value };
-                    }
-                    break;
-                case "3":
                     var format = await ReadFormatAsync(cancellationToken).ConfigureAwait(false);
                     if (format is not null)
                     {
                         _options = _options with { OutputFormat = format.Value };
                     }
                     break;
-                case "4":
+                case "3":
                     _options = _options with { Verbose = !_options.Verbose };
                     break;
-                case "5":
+                case "4":
                     _options = _options with { StrictValidation = !_options.StrictValidation };
                     break;
-                case "6":
+                case "5":
                     _options = _options with { Quiet = !_options.Quiet };
                     break;
-                case "7":
+                case "6":
                     _options = _options with { NoColor = !_options.NoColor };
                     break;
                 default:
@@ -188,26 +179,6 @@ public sealed class InteractiveSession
         else if (path.Length > 0)
         {
             _options = _options with { OutputFile = path };
-        }
-    }
-
-    /// <summary>Pide un entero en rango; Enter (vacio) mantiene el valor actual.</summary>
-    private async Task<int?> ReadIntAsync(string label, int min, int max, CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            var answer = (await PromptAsync(label, cancellationToken).ConfigureAwait(false)).Trim();
-            if (answer.Length == 0)
-            {
-                return null;
-            }
-
-            if (int.TryParse(answer, out var value) && value >= min && value <= max)
-            {
-                return value;
-            }
-
-            _output.WriteLine($"Valor invalido: se espera un entero entre {min} y {max}.");
         }
     }
 

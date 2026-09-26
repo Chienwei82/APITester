@@ -65,8 +65,8 @@ public class InteractiveSessionTests
     [Fact]
     public async Task RunAsync_OptionsSubMenu_UpdatesOptionsUsedOnNextRun()
     {
-        // 3 (opciones) -> 2 jobs=8 -> 3 formato=ndjson -> 4 verbose -> 0 volver -> 1 ejecutar -> 0 salir
-        var (session, _) = CreateSession("3\n2\n8\n3\nndjson\n4\n0\n1\n0\n");
+        // 3 (opciones) -> 2 formato=ndjson -> 3 verbose -> 0 volver -> 1 ejecutar -> 0 salir
+        var (session, _) = CreateSession("3\n2\nndjson\n3\n0\n1\n0\n");
         CliArgs? received = null;
 
         var exitCode = await session.RunAsync(cli =>
@@ -77,15 +77,14 @@ public class InteractiveSessionTests
 
         Assert.Equal(0, exitCode);
         Assert.NotNull(received);
-        Assert.Equal(8, received!.MaxConcurrency);
-        Assert.Equal(OutputFormat.Ndjson, received.OutputFormat);
+        Assert.Equal(OutputFormat.Ndjson, received!.OutputFormat);
         Assert.True(received.Verbose);
     }
 
     [Fact]
-    public async Task RunAsync_InvalidJobsValue_Reprompts()
+    public async Task RunAsync_InvalidFormatValue_Reprompts()
     {
-        var (session, output) = CreateSession("3\n2\n999\n8\n0\n1\n0\n");
+        var (session, output) = CreateSession("3\n2\nxml\nndjson\n0\n1\n0\n");
         CliArgs? received = null;
 
         var exitCode = await session.RunAsync(cli =>
@@ -95,8 +94,8 @@ public class InteractiveSessionTests
         });
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("Valor invalido", output.ToString());
-        Assert.Equal(8, received!.MaxConcurrency);
+        Assert.Contains("Formato invalido", output.ToString());
+        Assert.Equal(OutputFormat.Ndjson, received!.OutputFormat);
     }
 
     [Fact]
@@ -138,7 +137,7 @@ public class InteractiveSessionTests
     {
         var (session, _) = CreateSession(
             "1\n0\n",
-            new CliArgs { ConfigFile = "custom.json", MaxConcurrency = 9 });
+            new CliArgs { ConfigFile = "custom.json", OutputFile = "salida.json" });
         CliArgs? received = null;
 
         await session.RunAsync(cli =>
@@ -148,6 +147,6 @@ public class InteractiveSessionTests
         });
 
         Assert.Equal("custom.json", received!.ConfigFile);
-        Assert.Equal(9, received.MaxConcurrency);
+        Assert.Equal("salida.json", received.OutputFile);
     }
 }

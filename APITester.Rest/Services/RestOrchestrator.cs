@@ -122,7 +122,7 @@ public static class RestOrchestrator
         var totalSw = Stopwatch.StartNew();
 
         using var executor = new HttpExecutor();
-        var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.MaxConcurrency, cliArgs.Verbose);
+        var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.Verbose);
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 

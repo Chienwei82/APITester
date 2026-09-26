@@ -2,7 +2,7 @@
 
 Herramienta portable de linea de comandos para ejecutar requests HTTP contra APIs REST y guardar las respuestas en un archivo JSON.
 
-Lee una configuracion en JSON (uno o varios requests), los ejecuta en paralelo con un limite de concurrencia configurable, y produce un archivo con el detalle de cada respuesta: status code, headers, body, tiempo de respuesta, tamano, y headers enviados en el request.
+Lee una configuracion en JSON (uno o varios requests), los ejecuta uno por uno, en el orden del archivo, y produce un archivo con el detalle de cada respuesta: status code, headers, body, tiempo de respuesta, tamano, y headers enviados en el request.
 
 Requiere .NET SDK 10.0+ ([descargar](https://dotnet.microsoft.com/download)).
 
@@ -21,7 +21,7 @@ Sin argumentos, la app abre un menu en consola:
 
 1. **Ejecutar requests** — ejecuta la configuracion seleccionada y vuelve al menu.
 2. **Elegir archivo de configuracion** — cambia el JSON de requests.
-3. **Opciones de ejecucion** — salida, concurrencia, formato, verbose, strict, quiet y sin colores.
+3. **Opciones de ejecucion** — salida, formato, verbose, strict, quiet y sin colores.
 4. **Ver ayuda**
 0. **Salir**
 
@@ -32,7 +32,7 @@ Ctrl+C durante una ejecucion cancela solo esa ejecucion y te devuelve al menu; e
 Para ejecutar sin menu, pasa argumentos (despues de `--`):
 
 ```
-dotnet run -- -c archivo.json [-o salida.json] [-j N] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
+dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
 ```
 
 Con `-c rest-config.json` (o sin `-c`, usando ese archivo) ejecuta los requests definidos ahi, guardando cada respuesta en su archivo `output`.
@@ -41,7 +41,6 @@ Con `-c rest-config.json` (o sin `-c`, usando ese archivo) ejecuta los requests 
 |---|---|
 | `-c`, `--config <archivo>` | Ruta al archivo JSON con la configuracion de requests (default: `rest-config.json`). Soporta `--config=<archivo>` |
 | `-o`, `--output <archivo>` | Archivo de salida por defecto (si un request no define `output`). Soporta `--output=<archivo>` |
-| `-j`, `--jobs <N>` | Concurrencia maxima, entre 1 y 100 (default: 4). Aliases: `--concurrency`, `--jobs=<N>` |
 | `-v`, `--verbose` | Muestra detalles adicionales (query, body, certificado, reintentos) |
 | `--format json\|ndjson` | Formato de salida: `json` (indentado) o `ndjson` (una linea por respuesta) |
 | `--strict` | Fallar si hay advertencias de validacion |

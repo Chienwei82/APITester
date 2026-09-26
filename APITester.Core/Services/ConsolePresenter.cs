@@ -5,18 +5,17 @@ using APITester.Core.Models;
 namespace APITester.Core.Services;
 
 /// <summary>
-/// Presenta la salida en consola. El estado mutable (progreso, conteos, color)
-/// es por-instancia para cada ejecucion, de modo que no haya estado global
-/// compartido entre runs. El <see cref="OutputLock"/> se mantiene estatico y
-/// compartido por todos los presenters/loggers para que la secuencia
-/// cambio-de-color/escritura/reset sea atomica entre hilos.
+/// Presenta la salida en consola. La configuracion (progreso, colores) es
+/// por-instancia para cada ejecucion y no hay estado mutable compartido entre
+/// runs. El <see cref="OutputLock"/> se mantiene estatico y compartido por todos
+/// los presenters/loggers para que la secuencia cambio-de-color/escritura/reset
+/// sea atomica entre hilos.
 /// </summary>
 [SuppressMessage("Performance", "CA1822", Justification = "Metodos de UI agrupados en el presenter por cohesion de obra")]
 public sealed class ConsolePresenter
 {
     public static readonly object OutputLock = new();
 
-    private int _completedCount;
     private readonly bool _showProgress;
     private readonly bool _useColors;
 
@@ -30,13 +29,11 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            if (index == 0)
-            {
-                _completedCount = 0;
-            }
+            // La ejecucion es secuencial: 'index' es el numero de requests ya
+            // terminados, asi que la barra no necesita estado propio.
             if (_showProgress && total > 1)
             {
-                PrintProgressBar(_completedCount, total);
+                PrintProgressBar(index, total);
             }
 
             // Prefijo en color y etiqueta sin color, escritos de forma atomica.
@@ -72,7 +69,6 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            _completedCount = completed;
             if (_showProgress && total > 1)
             {
                 PrintProgressBar(completed, total);
@@ -121,12 +117,11 @@ public sealed class ConsolePresenter
 
                 Uso:
                   dotnet run              Abre el modo interactivo (menu en consola)
-                  dotnet run -- -c archivo.json [-o salida.json] [-v] [-j N] [--format json|ndjson] [--strict] [--quiet] [--no-color]
+                  dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color]
 
                 Argumentos:
                   -c, --config       Archivo JSON (default: {{defaultConfig}})
                   -o, --output       Archivo de salida
-                  -j, --jobs N       Concurrencia maxima (default: 4, max: 100)
                   -v, --verbose      Muestra detalles adicionales
                   --format FORMAT    Formato salida: json o ndjson (default: json)
                   --strict           Fallar si hay advertencias de validacion

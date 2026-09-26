@@ -6,7 +6,6 @@ public record CliArgs
     public string? OutputFile { get; init; }
     public bool Verbose { get; init; }
     public bool ShowHelp { get; init; }
-    public int MaxConcurrency { get; init; } = 4;
     public OutputFormat OutputFormat { get; init; } = OutputFormat.Json;
     public bool StrictValidation { get; init; }
     public bool Quiet { get; init; }
