@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using APITester.Core.Services;
 
@@ -9,6 +10,13 @@ public class ApiResponse : IHasStatusCode
     public ResponseInfo? Response { get; set; }
     public string? Error { get; set; }
     int IHasStatusCode.StatusCode => Response?.StatusCode ?? 0;
+
+    /// <summary>
+    /// El request llego a la API y devolvio un codigo no de error (menos de 400).
+    /// Un error de transporte (excepcion o red) no cuenta como respuesta.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsSuccessful => Error is null && Response is not null && Response.StatusCode < 400;
 }
 
 public class RequestInfo
