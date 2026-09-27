@@ -26,7 +26,7 @@ public class RestRequestConfig
     public int? RetryDelayMilliseconds { get; set; }
 
     [JsonPropertyName("retryExponentialBackoff")]
-    public bool? UseExponentialBackoff { get; set; }
+    public bool UseExponentialBackoff { get; set; } = false;
 
     [JsonPropertyName("retryOnStatusCodes")]
     public List<int>? RetryOnStatusCodes { get; set; }
@@ -38,22 +38,12 @@ public class RestRequestConfig
     {
         if (defaults is null) return;
 
-        if (Headers is null && defaults.Headers is not null)
-            Headers = defaults.Headers;
-        if (Query is null && defaults.Query is not null)
-            Query = defaults.Query;
-        if (TimeoutInSeconds is null && defaults.TimeoutInSeconds.HasValue)
-            TimeoutInSeconds = defaults.TimeoutInSeconds.Value;
-        if (Retries is null && defaults.Retries.HasValue)
-            Retries = defaults.Retries.Value;
-        if (RetryDelayMilliseconds is null && defaults.RetryDelayMilliseconds.HasValue)
-            RetryDelayMilliseconds = defaults.RetryDelayMilliseconds.Value;
-        if (UseExponentialBackoff is null && defaults.UseExponentialBackoff)
-            UseExponentialBackoff = true;
-        if (RetryOnStatusCodes is null && defaults.RetryOnStatusCodes is not null)
-            RetryOnStatusCodes = defaults.RetryOnStatusCodes;
-        if (MaxBodyBytes is null && defaults.MaxBodyBytes.HasValue)
-            MaxBodyBytes = defaults.MaxBodyBytes.Value;
+        Headers ??= defaults.Headers;
+        Query ??= defaults.Query;
+        TimeoutInSeconds ??= defaults.TimeoutInSeconds;
+        Retries ??= defaults.Retries;
+        RetryDelayMilliseconds ??= defaults.RetryDelayMilliseconds;
+
         if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             Url = defaults.BaseUrl.TrimEnd('/') + "/" + Url.TrimStart('/');
     }
@@ -69,17 +59,11 @@ public class RestRequestConfig
         var certError = ConfigValidator.ValidateCert(Cert);
         if (certError is not null) yield return certError;
 
-        if (!HttpMethods.IsValidMethod(Method))
+        if (!HttpMethods.IsSupported(Method))
             yield return $"Metodo HTTP '{Method}' no soportado";
 
-        if (!string.IsNullOrEmpty(Body) && !HttpMethods.SupportsBody(Method))
+        if (!string.IsNullOrEmpty(Body) && !HttpMethods.AllowsBody(Method))
             yield return $"El metodo '{Method}' no soporta body";
-
-        if (Retries is < 0 or > 10)
-            yield return "Retries debe estar entre 0 y 10";
-
-        if (RetryDelayMilliseconds is < 0 or > 60000)
-            yield return "RetryDelayMs debe estar entre 0 y 60000";
     }
 
     /// <summary>Efectivo timeout, aplicando el default cuando no se especifico.</summary>
@@ -90,9 +74,6 @@ public class RestRequestConfig
 
     /// <summary>Efectivo delay entre reintentos, aplicando el default cuando no se especifico.</summary>
     public int EffectiveRetryDelayMilliseconds => RetryDelayMilliseconds ?? 1000;
-
-    /// <summary>Efectivo backoff exponencial, aplicando el default cuando no se especifico.</summary>
-    public bool EffectiveUseExponentialBackoff => UseExponentialBackoff ?? false;
 
     /// <summary>Limite de bytes a leer del body de la respuesta (default 4MB).</summary>
     public long EffectiveMaxBodyBytes => MaxBodyBytes ?? 4 * 1024 * 1024;
@@ -112,15 +93,6 @@ public class RestConfigDefaults
 
     [JsonPropertyName("retryDelayMs")]
     public int? RetryDelayMilliseconds { get; set; }
-
-    [JsonPropertyName("retryExponentialBackoff")]
-    public bool UseExponentialBackoff { get; set; }
-
-    [JsonPropertyName("retryOnStatusCodes")]
-    public List<int>? RetryOnStatusCodes { get; set; }
-
-    [JsonPropertyName("maxBodyBytes")]
-    public long? MaxBodyBytes { get; set; }
 }
 
 public class RestConfigFile

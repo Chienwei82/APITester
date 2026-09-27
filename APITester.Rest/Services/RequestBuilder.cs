@@ -7,63 +7,60 @@ namespace APITester.Rest.Services;
 
 public static class RequestBuilder
 {
-    private static readonly HashSet<string> ForbiddenHeaders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Content-Length", "Transfer-Encoding", "Host", "Connection",
-        "Upgrade", "Proxy-Connection", "Keep-Alive", "TE", "Trailer"
-    };
+    private const string DefaultContentType = "application/json";
 
-    public static HttpRequestMessage Build(RestRequestConfig config)
+    /// <summary>
+    /// Construye el request y devuelve tambien los headers que viajan en el (sin
+    /// Content-Type, que se envia con el body). Es el unico punto que resuelve
+    /// variables de entorno y valida headers: si alguno esta prohibido o su valor
+    /// contiene caracteres invalidos, lanza <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public static (HttpRequestMessage Request, Dictionary<string, string> SentHeaders) Build(RestRequestConfig config)
     {
+        var headers = ResolveHeaders(config);
+        var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         var method = new HttpMethod(config.Method.ToUpperInvariant());
-        var url = BuildUrlWithQuery(config);
-        var request = new HttpRequestMessage(method, url);        var resolvedHeaders = config.Headers is not null
-            ? EnvVarResolver.Resolve(config.Headers)
-            : null;
+        var request = new HttpRequestMessage(method, BuildUrlWithQuery(config));
 
-        foreach (var (key, value) in resolvedHeaders ?? [])
+        foreach (var (key, value) in headers)
         {
-            if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (ForbiddenHeaders.Contains(key))
-                throw new InvalidOperationException($"Header '{key}' no esta permitido por seguridad");
-
-            if (value.IndexOfAny(['\r', '\n']) >= 0)
-                throw new InvalidOperationException($"El valor del header '{key}' contiene caracteres invalidos");
+            if (HeaderRules.IsContentType(key)) continue;
 
             request.Headers.TryAddWithoutValidation(key, value);
+            sentHeaders[key] = value;
         }
 
-        if (HttpMethods.SupportsBody(config.Method) && config.Body is not null)
+        if (HttpMethods.AllowsBody(method.Method) && config.Body is not null)
         {
-            var contentType = ResolveContentType(resolvedHeaders);
+            var contentType = headers.TryGetValue("Content-Type", out var configured)
+                ? configured
+                : DefaultContentType;
             var resolvedBody = EnvVarResolver.Resolve(config.Body)!;
             request.Content = new StringContent(resolvedBody, Encoding.UTF8, contentType);
         }
 
-        return request;
+        return (request, sentHeaders);
     }
 
-    public static Dictionary<string, string> GetRequestHeaders(RestRequestConfig config)
+    private static Dictionary<string, string> ResolveHeaders(RestRequestConfig config)
     {
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (config.Headers is null || config.Headers.Count == 0)
-            return [];
-
-        var resolvedHeaders = EnvVarResolver.Resolve(config.Headers);
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (key, value) in resolvedHeaders)
         {
-            if (!key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
-                && !ForbiddenHeaders.Contains(key)
-                && value.IndexOfAny(['\r', '\n']) < 0)
-            {
-                result[key] = value;
-            }
+            return resolved;
         }
 
-        return result;
+        foreach (var (key, value) in EnvVarResolver.Resolve(config.Headers))
+        {
+            var error = HeaderRules.Validate(key, value);
+            if (error is not null)
+                throw new InvalidOperationException(error);
+
+            resolved[key] = value;
+        }
+
+        return resolved;
     }
 
     private static string BuildUrlWithQuery(RestRequestConfig config)
@@ -81,12 +78,5 @@ public static class RequestBuilder
             $"{Uri.EscapeDataString(entry.Key)}={Uri.EscapeDataString(entry.Value)}");
         var sep = url.Contains('?') ? '&' : '?';
         return $"{url}{sep}{string.Join("&", segments)}";
-    }
-
-    private static string ResolveContentType(Dictionary<string, string>? headers)
-    {
-        if (headers?.TryGetValue("Content-Type", out var ct) == true)
-            return ct;
-        return "application/json";
     }
 }

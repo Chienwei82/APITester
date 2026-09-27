@@ -93,14 +93,6 @@ public class ArgumentParserTests
     }
 
     [Fact]
-    public void Parse_EqualsSyntax_Jobs()
-    {
-        var result = ArgumentParser.Parse(["--jobs=8"], "rest-config.json");
-
-        Assert.Equal(8, result.MaxConcurrency);
-    }
-
-    [Fact]
     public void Parse_EqualsSyntax_Format()
     {
         var result = ArgumentParser.Parse(["--format=ndjson"], "rest-config.json");
@@ -114,15 +106,6 @@ public class ArgumentParserTests
         var result = ArgumentParser.Parse([], "rest-config.json");
 
         Assert.Equal(OutputFormat.Json, result.OutputFormat);
-    }
-
-    [Fact]
-    public void Parse_InvalidJobsValue_ThrowsArgumentException()
-    {
-        var ex = Assert.Throws<ArgumentException>(() =>
-            ArgumentParser.Parse(["--jobs=invalid"], "rest-config.json"));
-
-        Assert.Contains("Valor invalido", ex.Message);
     }
 
     [Fact]
@@ -159,53 +142,12 @@ public class ArgumentParserTests
     }
 
     [Fact]
-    public void Parse_Jobs_UpperBound_ThrowsException()
+    public void Parse_JobsFlag_IsRejected()
     {
+        // La concurrencia se elimino: los requests se ejecutan uno por uno.
         var ex = Assert.Throws<ArgumentException>(() =>
-            ArgumentParser.Parse(["--jobs=200"], "rest-config.json"));
+            ArgumentParser.Parse(["--jobs", "8"], "rest-config.json"));
 
-        Assert.Contains("entre 1 y 100", ex.Message);
-    }
-
-    [Fact]
-    public void Parse_Jobs_Negative_ThrowsException()
-    {
-        var ex = Assert.Throws<ArgumentException>(() =>
-            ArgumentParser.Parse(["--jobs=-5"], "rest-config.json"));
-
-        Assert.Contains("entre 1 y 100", ex.Message);
-    }
-
-    [Fact]
-    public void Parse_NoRedactFlag_DisablesRedaction()
-    {
-        var result = ArgumentParser.Parse(["--no-redact"], "rest-config.json");
-
-        Assert.False(result.RedactSensitiveHeaders);
-    }
-
-    [Fact]
-    public void Parse_Default_RedactionEnabled()
-    {
-        var result = ArgumentParser.Parse([], "rest-config.json");
-
-        Assert.True(result.RedactSensitiveHeaders);
-    }
-
-    [Fact]
-    public void Parse_Format_IsCaseInsensitive()
-    {
-        var result = ArgumentParser.Parse(["--format", "NDJSON"], "rest-config.json");
-
-        Assert.Equal(OutputFormat.Ndjson, result.OutputFormat);
-    }
-
-    [Fact]
-    public void Parse_FlagMissingValue_WhenNextArgLooksLikeFlag()
-    {
-        var ex = Assert.Throws<ArgumentException>(() =>
-            ArgumentParser.Parse(["--config", "--output"], "rest-config.json"));
-
-        Assert.Contains("Falta un valor", ex.Message);
+        Assert.Contains("Argumento desconocido: --jobs", ex.Message);
     }
 }

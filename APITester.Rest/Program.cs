@@ -3,16 +3,20 @@ using APITester.Rest;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var cts = new CancellationTokenSource();
+using var ctrlC = new CtrlCCoordinator();
 Console.CancelKeyPress += (_, e) =>
 {
-    e.Cancel = true;
-    cts.Cancel();
+    // Con una ejecucion en curso (CLI directa o run del menu) Ctrl+C se
+    // cancela de forma elegante y el proceso sigue vivo. Sin ejecucion en
+    // curso la sesion esta bloqueada en un prompt de Spectre (no cancelable
+    // con tokens), asi que se deja terminar el proceso directamente.
+    e.Cancel = ctrlC.HasActiveRun;
+    ctrlC.Cancel();
 };
 
 try
 {
-    return await RestOrchestrator.RunAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
+    return await RestOrchestrator.RunCliAsync(args, ctrlC);
 }
 catch (OperationCanceledException)
 {

@@ -11,13 +11,6 @@ public class BuildWritePlanTests
         Request = new RequestInfo { Name = name }
     };
 
-    private static List<RequestResult> Pair(
-        List<RestRequestConfig> recipes,
-        List<ApiResponse> results)
-    {
-        return recipes.Zip(results, (config, result) => new RequestResult(config, result)).ToList();
-    }
-
     [Fact]
     public void TwoRequests_SameOutput_AreGroupedIntoOneOverwriteEntry()
     {
@@ -32,7 +25,7 @@ public class BuildWritePlanTests
             MakeResponse("two")
         };
 
-        var plan = RestOrchestrator.BuildWritePlan(Pair(recipes, results), "default.json");
+        var plan = RestOrchestrator.BuildWritePlan(results, recipes, "default.json");
 
         Assert.Single(plan.Overwrite);
         var pair = plan.Overwrite.First();
@@ -55,7 +48,7 @@ public class BuildWritePlanTests
             MakeResponse("two")
         };
 
-        var plan = RestOrchestrator.BuildWritePlan(Pair(recipes, results), "default.json");
+        var plan = RestOrchestrator.BuildWritePlan(results, recipes, "default.json");
 
         Assert.Equal(2, plan.Overwrite.Count);
         Assert.Empty(plan.Appends);
@@ -75,7 +68,7 @@ public class BuildWritePlanTests
             MakeResponse("two")
         };
 
-        var plan = RestOrchestrator.BuildWritePlan(Pair(recipes, results), "default.json");
+        var plan = RestOrchestrator.BuildWritePlan(results, recipes, "default.json");
 
         Assert.Single(plan.Overwrite);
         Assert.Equal("shared.json", plan.Overwrite.First().Key);
@@ -97,7 +90,7 @@ public class BuildWritePlanTests
             MakeResponse("one")
         };
 
-        var plan = RestOrchestrator.BuildWritePlan(Pair(recipes, results), "default.json");
+        var plan = RestOrchestrator.BuildWritePlan(results, recipes, "default.json");
 
         Assert.Empty(plan.Overwrite);
         Assert.Single(plan.Appends);

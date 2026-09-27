@@ -2,10 +2,13 @@ using System.Text.Json;
 
 namespace APITester.Core.Services;
 
-public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
+/// <summary>
+/// Interpreta el texto de un archivo de configuracion ya leido: acepta un array
+/// de items o un item unico. La lectura del archivo (existencia, tamano, vacio)
+/// la hace <see cref="ConfigFileReader"/>.
+/// </summary>
+public class GenericConfigLoader<T> where T : class
 {
-    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -22,28 +25,13 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
 
     public async Task<List<T>> LoadAsync(string filePath)
     {
-        if (!File.Exists(filePath))
-            throw new FileNotFoundException($"No se encuentra '{filePath}'");
-
-        var fileInfo = new FileInfo(filePath);
-        if (fileInfo.Length > MaxFileSizeBytes)
-            throw new InvalidDataException(
-                $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
-
-        var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
-        return LoadFromJson(json);
+        var json = await ConfigFileReader.ReadAsync(filePath, _singleKeyField).ConfigureAwait(false);
+        return Parse(json);
     }
 
-    /// <summary>
-    /// Resuelve contenido JSON ya leido: array de items, o item unico validado
-    /// con <paramref name="_isSingleValid"/>. Permite a loaders derivados leer el
-    /// archivo una sola vez y reutilizar el contenido sin volver a disco.
-    /// </summary>
-    public List<T> LoadFromJson(string json)
+    /// <summary>Interpreta el texto ya leido: array de items o item unico.</summary>
+    public List<T> Parse(string json)
     {
-        if (string.IsNullOrWhiteSpace(json))
-            throw new InvalidDataException(NoRequestsMessage);
-
         JsonDocument doc;
         try
         {
@@ -56,39 +44,32 @@ public class GenericConfigLoader<T> : IConfigLoader<T> where T : class
 
         using (doc)
         {
-            var root = doc.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
             {
-                try
-                {
-                    var asArray = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
-                    if (asArray is { Count: > 0 })
-                        return asArray;
-                }
-                catch (JsonException ex)
-                {
-                    throw new InvalidDataException($"Error deserializando JSON como lista: {ex.Message}", ex);
-                }
+                var items = Deserialize<List<T>>(json, "lista");
+                if (items is { Count: > 0 })
+                    return items;
             }
-            else if (root.ValueKind == JsonValueKind.Object)
+            else if (doc.RootElement.ValueKind == JsonValueKind.Object)
             {
-                try
-                {
-                    var single = JsonSerializer.Deserialize<T>(json, JsonOptions);
-                    if (single is not null && _isSingleValid(single))
-                        return [single];
-                }
-                catch (JsonException ex)
-                {
-                    throw new InvalidDataException($"Error deserializando JSON como objeto: {ex.Message}", ex);
-                }
+                var single = Deserialize<T>(json, "objeto");
+                if (single is not null && _isSingleValid(single))
+                    return [single];
             }
         }
 
-        throw new InvalidDataException(NoRequestsMessage);
+        throw new InvalidDataException(ConfigFileReader.NoRequestsMessage(_singleKeyField));
     }
 
-    private string NoRequestsMessage =>
-        $"JSON sin requests. Usa '{_singleKeyField}' para uno o '[{{ \"{_singleKeyField}\": ... }}]' para varios.";
+    private static TValue? Deserialize<TValue>(string json, string kind) where TValue : class
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<TValue>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Error deserializando JSON como {kind}: {ex.Message}", ex);
+        }
+    }
 }

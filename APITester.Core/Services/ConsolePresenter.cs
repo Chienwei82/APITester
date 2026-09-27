@@ -5,18 +5,17 @@ using APITester.Core.Models;
 namespace APITester.Core.Services;
 
 /// <summary>
-/// Presenta la salida en consola. El estado mutable (progreso, conteos, color)
-/// es por-instancia para cada ejecucion, de modo que no haya estado global
-/// compartido entre runs. El <see cref="OutputLock"/> se mantiene estatico y
-/// compartido por todos los presenters/loggers para que la secuencia
-/// cambio-de-color/escritura/reset sea atomica entre hilos.
+/// Presenta la salida en consola. La configuracion (progreso, colores) es
+/// por-instancia para cada ejecucion y no hay estado mutable compartido entre
+/// runs. El <see cref="OutputLock"/> se mantiene estatico y compartido por todos
+/// los presenters/loggers para que la secuencia cambio-de-color/escritura/reset
+/// sea atomica entre hilos.
 /// </summary>
 [SuppressMessage("Performance", "CA1822", Justification = "Metodos de UI agrupados en el presenter por cohesion de obra")]
 public sealed class ConsolePresenter
 {
     public static readonly object OutputLock = new();
 
-    private int _completedCount;
     private readonly bool _showProgress;
     private readonly bool _useColors;
 
@@ -26,38 +25,19 @@ public sealed class ConsolePresenter
         _useColors = useColors;
     }
 
-    /// <summary>
-    /// Inicializa los contadores de progreso para una ejecucion.
-    /// Debe llamarse una unica vez antes de lanzar los requests: hacerlo desde
-    /// PrintRequestHeader introduciria una carrera cuando el request con indice 0
-    /// no es el primero en ejecutarse (con concurrencia > 1).
-    /// </summary>
-    public void BeginProgress(int total)
-    {
-        lock (OutputLock)
-        {
-            _completedCount = 0;
-        }
-    }
-
     public void PrintRequestHeader(string label, int index, int total)
     {
         lock (OutputLock)
         {
+            // La ejecucion es secuencial: 'index' es el numero de requests ya
+            // terminados, asi que la barra no necesita estado propio.
             if (_showProgress && total > 1)
             {
-                PrintProgressBar(_completedCount, total);
+                PrintProgressBar(index, total);
             }
-            if (_useColors)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"[{index + 1}/{total}] ");
-                Console.ResetColor();
-            }
-            else
-            {
-                Console.Write($"[{index + 1}/{total}] ");
-            }
+
+            // Prefijo en color y etiqueta sin color, escritos de forma atomica.
+            Write($"[{index + 1}/{total}] ", ConsoleColor.Cyan, newLine: false);
             Console.WriteLine(label);
         }
     }
@@ -89,7 +69,6 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            _completedCount = completed;
             if (_showProgress && total > 1)
             {
                 PrintProgressBar(completed, total);
@@ -110,16 +89,20 @@ public sealed class ConsolePresenter
             Console.WriteLine();
     }
 
-    /// <param name="saved">False cuando la escritura del archivo fallo: no se
-    /// anuncia "salida guardada" pero si se muestran las estadisticas.</param>
-    public void PrintSummary(ExecutionSummary summary, bool saved = true)
+    public void PrintSummary(ExecutionSummary summary)
     {
         lock (OutputLock)
         {
-            if (saved)
+            if (string.IsNullOrEmpty(summary.OutputFile))
+            {
+                Console.WriteLine();
+            }
+            else
+            {
                 WriteLineColored($"\nSalida guardada en: {summary.OutputFile}", ConsoleColor.Green);
+            }
             Console.WriteLine($"Tiempo total: {summary.TotalElapsedMs}ms");
-            Console.WriteLine($"Requests: {summary.TotalRequests} ejecutados, {summary.SuccessfulRequests} exitosos, {summary.FailedRequests} fallidos (error de red o status >= 400)");
+            Console.WriteLine($"Requests: {summary.TotalRequests} ejecutados, {summary.SuccessfulRequests} exitosos, {summary.FailedRequests} con error");
         }
     }
 
@@ -136,27 +119,28 @@ public sealed class ConsolePresenter
     {
         lock (OutputLock)
         {
-            Console.WriteLine($"API Tester — Cliente {protocol} portable");
-            Console.WriteLine();
-            Console.WriteLine("Uso:");
-            Console.WriteLine($"  dotnet run -- -c archivo.json [-o salida.json] [-v] [-j N] [--format json|ndjson] [--strict] [--quiet] [--no-color]");
-            Console.WriteLine();
-            Console.WriteLine("Argumentos:");
-            Console.WriteLine($"  -c, --config       Archivo JSON (default: {defaultConfig})");
-            Console.WriteLine("  -o, --output       Archivo de salida");
-            Console.WriteLine("  -j, --jobs N       Concurrencia maxima (default: 4, max: 100)");
-            Console.WriteLine("  -v, --verbose      Muestra detalles adicionales");
-            Console.WriteLine("  --format FORMAT    Formato salida: json o ndjson (default: json)");
-            Console.WriteLine("  --strict           Fallar si hay advertencias de validacion");
-            Console.WriteLine("  --quiet            Solo mostrar errores y resumen final");
-            Console.WriteLine("  --no-color         Deshabilitar salida con colores");
-            Console.WriteLine("  --no-redact        No redactar headers sensibles (Authorization, Cookie)");
-            Console.WriteLine("  -h, --help         Muestra esta ayuda");
-            Console.WriteLine();
-            Console.WriteLine("Variables de entorno:");
-            Console.WriteLine("  Usa ${NOMBRE_VAR} en el JSON para sustituir con variables de entorno.");
-            Console.WriteLine("  Soporta default: ${VAR:-default}");
-            Console.WriteLine();
+            Console.WriteLine($$"""
+                API Tester — Cliente {{protocol}} portable
+
+                Uso:
+                  dotnet run              Abre el modo interactivo (menu en consola)
+                  dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color]
+
+                Argumentos:
+                  -c, --config       Archivo JSON (default: {{defaultConfig}})
+                  -o, --output       Archivo de salida
+                  -v, --verbose      Muestra detalles adicionales
+                  --format FORMAT    Formato salida: json o ndjson (default: json)
+                  --strict           Fallar si hay advertencias de validacion
+                  --quiet            Solo mostrar errores y resumen final
+                  --no-color         Deshabilitar salida con colores
+                  -h, --help         Muestra esta ayuda
+
+                Variables de entorno:
+                  Usa ${NOMBRE_VAR} en el JSON para sustituir con variables de entorno.
+                  Soporta default: ${VAR:-default}
+
+                """);
         }
     }
 
@@ -177,24 +161,39 @@ public sealed class ConsolePresenter
             WriteLineColored($"  ADVERTENCIA: {w}", ConsoleColor.Yellow);
     }
 
-    private void WriteLineColored(string text, ConsoleColor color)
+    private void WriteLineColored(string text, ConsoleColor color) =>
+        Write(text, color, newLine: true);
+
+    /// <summary>
+    /// Escribe texto con el color indicado bajo <see cref="OutputLock"/>, de modo que
+    /// la secuencia color/escritura/reset sea atomica entre hilos.
+    /// </summary>
+    private void Write(string text, ConsoleColor color, bool newLine)
     {
         lock (OutputLock)
         {
             if (_useColors)
             {
                 Console.ForegroundColor = color;
+            }
+
+            if (newLine)
+            {
                 Console.WriteLine(text);
-                Console.ResetColor();
             }
             else
             {
-                Console.WriteLine(text);
+                Console.Write(text);
+            }
+
+            if (_useColors)
+            {
+                Console.ResetColor();
             }
         }
     }
 
-    private static string FormatBytes(long bytes) => bytes switch
+    private static string FormatBytes(int bytes) => bytes switch
     {
         < 1024 => $"{bytes}B",
         < 1024 * 1024 => $"{bytes / 1024.0:F1}KB",

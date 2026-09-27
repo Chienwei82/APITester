@@ -30,9 +30,6 @@ public static class ArgumentParser
                 case "--no-color":
                     cli = cli with { NoColor = true };
                     continue;
-                case "--no-redact":
-                    cli = cli with { RedactSensitiveHeaders = false };
-                    continue;
             }
 
             // Flags que aceptan un valor: "--opt <val>" o "--opt=<val>".
@@ -45,9 +42,6 @@ public static class ArgumentParser
                     break;
                 case "-o" or "--output":
                     cli = cli with { OutputFile = ReadValue("output", inlineValue, args, ref i) };
-                    break;
-                case "-j" or "--jobs" or "--concurrency":
-                    cli = cli with { MaxConcurrency = ReadJobs("jobs", inlineValue, args, ref i) };
                     break;
                 case "--format":
                     cli = cli with { OutputFormat = ReadFormat(inlineValue, args, ref i) };
@@ -79,30 +73,15 @@ public static class ArgumentParser
     {
         if (inline is not null)
             return inline;
-        if (i + 1 < args.Length && !LooksLikeFlag(args[i + 1]))
+        if (i + 1 < args.Length)
             return args[++i];
         throw new ArgumentException($"Falta un valor para '{flag}'");
-    }
-
-    /// <summary>
-    /// Un argumento parece un flag ("-x", "--opt") y no un valor (ej. "-5").
-    /// </summary>
-    private static bool LooksLikeFlag(string arg) =>
-        arg.StartsWith('-') && arg.Length > 1 && !char.IsDigit(arg[1]);
-
-    private static int ReadJobs(string flag, string? inline, string[] args, ref int i)
-    {
-        var raw = ReadValue(flag, inline, args, ref i);
-        if (int.TryParse(raw, out var jobs) && jobs > 0 && jobs <= 100)
-            return jobs;
-        throw new ArgumentException(
-            $"Valor invalido para '{flag}': se espera un entero entre 1 y 100");
     }
 
     private static OutputFormat ReadFormat(string? inline, string[] args, ref int i)
     {
         var raw = ReadValue("format", inline, args, ref i);
-        return raw.ToLowerInvariant() switch
+        return raw switch
         {
             "json" => OutputFormat.Json,
             "ndjson" => OutputFormat.Ndjson,
