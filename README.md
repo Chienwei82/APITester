@@ -289,4 +289,14 @@ El diseno separa el nucleo (`Core`) del protocolo especifico (`Rest`), lo que pe
 
 ---
 
+## Scripts
+
+Utilidades de mantenimiento del repo en [`scripts/`](scripts/README.md), por ejemplo la limpieza de ramas locales despues de mergear un PR:
+
+```bash
+python3 scripts/git_cleanup.py --dry-run
+```
+
+---
+
 Repositorio: https://github.com/Chienwei82/APITester
