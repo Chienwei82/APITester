@@ -1,10 +1,10 @@
 name: CI
 
 # Workflow reutilizable: Release lo invoca en cada PR y ademas corre solo en
-# los push a las ramas principales.
+# los push a la rama principal (main).
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_call:
   workflow_dispatch:
 
