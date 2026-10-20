@@ -57,9 +57,41 @@ public class InteractiveSessionTests
     [Fact]
     public async Task RunAsync_ChooseConfigThenRun_UsesChosenFile()
     {
+        var configPath = Path.Combine(Path.GetTempPath(), $"apitester-session-{Guid.NewGuid():N}.json");
+        File.WriteAllText(configPath, "{}");
+
+        try
+        {
+            var console = NewConsole();
+            Select(console, MenuConfig);
+            console.Input.PushTextWithEnter(configPath);
+            Select(console, MenuRun);
+            Select(console, MenuExit);
+            var session = new InteractiveSession(console);
+            CliArgs? received = null;
+
+            await session.RunAsync(
+                cli =>
+                {
+                    received = cli;
+                    return Task.FromResult(0);
+                },
+                NotUsed);
+
+            Assert.Equal(configPath, received!.ConfigFile);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ChooseMissingConfig_KeepsCurrentFile()
+    {
         var console = NewConsole();
         Select(console, MenuConfig);
-        console.Input.PushTextWithEnter("my-config.json");
+        console.Input.PushTextWithEnter("/nonexistent/config.json");
         Select(console, MenuRun);
         Select(console, MenuExit);
         var session = new InteractiveSession(console);
@@ -73,7 +105,8 @@ public class InteractiveSessionTests
             },
             NotUsed);
 
-        Assert.Equal("my-config.json", received!.ConfigFile);
+        Assert.Equal(CliArgs.DefaultConfigFile, received!.ConfigFile);
+        Assert.Contains("No se encuentra", console.Output.ToString());
     }
 
     [Fact]

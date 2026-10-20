@@ -22,7 +22,10 @@ public static class CertHandlerFactory
     {
         if (certConfig?.Path is null) return null;
 
-        var cacheKey = $"{certConfig.Path}|{certConfig.Password ?? ""}";
+        // La ruta y el password pueden venir de variables de entorno.
+        var path = EnvVarResolver.Resolve(certConfig.Path)!;
+        var password = EnvVarResolver.Resolve(certConfig.Password);
+        var cacheKey = $"{path}|{password ?? string.Empty}";
 
         lock (Gate)
         {
@@ -34,7 +37,7 @@ public static class CertHandlerFactory
                 return existing;
             }
 
-            var client = CreateClient(certConfig);
+            var client = CreateClient(path, password);
             _cache[cacheKey] = client;
             _accessOrder.AddLast(cacheKey);
             EvictIfNeeded();
@@ -55,16 +58,16 @@ public static class CertHandlerFactory
         }
     }
 
-    private static HttpClient CreateClient(CertConfig certConfig)
+    private static HttpClient CreateClient(string path, string? password)
     {
-        if (string.IsNullOrEmpty(certConfig.Path))
+        if (string.IsNullOrEmpty(path))
             throw new InvalidOperationException("El certificado no tiene una ruta configurada");
 
         try
         {
-            var cert = string.IsNullOrEmpty(certConfig.Password)
-                ? X509CertificateLoader.LoadCertificateFromFile(certConfig.Path)
-                : X509CertificateLoader.LoadPkcs12FromFile(certConfig.Path, certConfig.Password);
+            var cert = string.IsNullOrEmpty(password)
+                ? X509CertificateLoader.LoadCertificateFromFile(path)
+                : X509CertificateLoader.LoadPkcs12FromFile(path, password);
 
             var handler = new HttpClientHandler { ClientCertificates = { cert } };
             return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
@@ -72,12 +75,12 @@ public static class CertHandlerFactory
         catch (CryptographicException ex)
         {
             throw new InvalidOperationException(
-                $"Error cargando certificado '{certConfig.Path}': {ex.Message}", ex);
+                $"Error cargando certificado '{path}': {ex.Message}", ex);
         }
         catch (FileNotFoundException)
         {
             throw new InvalidOperationException(
-                $"Archivo de certificado no encontrado: '{certConfig.Path}'");
+                $"Archivo de certificado no encontrado: '{path}'");
         }
     }
 

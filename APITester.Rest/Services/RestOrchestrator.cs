@@ -9,7 +9,6 @@ namespace APITester.Rest;
 
 public static class RestOrchestrator
 {
-    private const string DefaultConfigFile = "rest-config.json";
     private const string DefaultOutputFile = "rest-response.json";
 
     /// <summary>
@@ -31,7 +30,7 @@ public static class RestOrchestrator
         CliArgs cliArgs;
         try
         {
-            cliArgs = ArgumentParser.Parse(args, DefaultConfigFile);
+            cliArgs = ArgumentParser.Parse(args, CliArgs.DefaultConfigFile);
         }
         catch (ArgumentException ex)
         {
@@ -41,7 +40,7 @@ public static class RestOrchestrator
 
         if (cliArgs.ShowHelp)
         {
-            new ConsolePresenter().PrintHelp("REST", DefaultConfigFile);
+            new ConsolePresenter().PrintHelp("REST", CliArgs.DefaultConfigFile);
             return 0;
         }
 
@@ -69,16 +68,16 @@ public static class RestOrchestrator
 
         if (cliArgs.ShowHelp)
         {
-            presenter.PrintHelp("REST", DefaultConfigFile);
+            presenter.PrintHelp("REST", CliArgs.DefaultConfigFile);
             return 0;
         }
 
         List<RestRequestConfig> requests;
         try
         {
-            requests = await RestConfigLoader.LoadAsync(cliArgs.ConfigFile).ConfigureAwait(false);
+            requests = await RestConfigLoader.LoadAsync(cliArgs.ConfigFile, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             presenter.PrintFatalError(ex.Message);
             return 1;
@@ -180,23 +179,28 @@ public static class RestOrchestrator
     {
         var totalSw = Stopwatch.StartNew();
 
-        using var executor = new HttpExecutor();
+        using var executor = new HttpExecutor(redactHeaders: cliArgs.RedactSensitiveHeaders);
         var requestExecutor = new RequestExecutor(executor, presenter, cliArgs.Verbose);
         var results = await requestExecutor.ExecuteAllAsync(requests, cancellationToken).ConfigureAwait(false);
         totalSw.Stop();
 
+        var writtenPaths = new List<string>();
         if (defaultOutput is not null)
         {
-            await SaveResultsAsync(results, requests, defaultOutput, cliArgs.OutputFormat).ConfigureAwait(false);
+            writtenPaths.AddRange(await SaveResultsAsync(
+                results, requests, defaultOutput, cliArgs.OutputFormat, cancellationToken).ConfigureAwait(false));
         }
 
+        // Un request solo es exitoso si hubo respuesta y el status es < 400:
+        // un 404/500 debe hacer fallar el proceso (y el CI).
+        var successful = results.Count(r => r.IsSuccessful);
         var summary = new ExecutionSummary
         {
-            OutputFile = defaultOutput ?? string.Empty,
+            OutputFile = string.Join(", ", writtenPaths),
             TotalElapsedMs = totalSw.ElapsedMilliseconds,
             TotalRequests = results.Count,
-            SuccessfulRequests = results.Count(r => r.Response is not null),
-            FailedRequests = results.Count(r => r.Error is not null)
+            SuccessfulRequests = successful,
+            FailedRequests = results.Count - successful
         };
 
         presenter.PrintSummary(summary);
@@ -204,28 +208,37 @@ public static class RestOrchestrator
         return summary.FailedRequests > 0 ? 1 : 0;
     }
 
-    /// <summary>Escribe los resultados siguiendo el plan de escritura.</summary>
-    private static async Task SaveResultsAsync(
+    /// <summary>
+    /// Escribe los resultados siguiendo el plan de escritura y devuelve las rutas
+    /// que se escribieron, para informarlas en el resumen.
+    /// </summary>
+    private static async Task<List<string>> SaveResultsAsync(
         List<ApiResponse> results,
         List<RestRequestConfig> requests,
         string defaultOutput,
-        OutputFormat format)
+        OutputFormat format,
+        CancellationToken cancellationToken)
     {
         var plan = BuildWritePlan(results, requests, defaultOutput);
+        var written = new List<string>(plan.Overwrite.Count + plan.Appends.Count);
 
         foreach (var (path, group) in plan.Overwrite)
         {
-            await JsonFormatter.SaveAsync(path, group, format).ConfigureAwait(false);
+            await JsonFormatter.SaveAsync(path, group, format, cancellationToken).ConfigureAwait(false);
+            written.Add(path);
         }
 
         foreach (var (path, response) in plan.Appends)
         {
-            await JsonFormatter.AppendToFileAsync(path, response).ConfigureAwait(false);
+            await JsonFormatter.AppendToFileAsync(path, response, cancellationToken).ConfigureAwait(false);
+            written.Add(path);
         }
+
+        return written;
     }
 
     private static List<string> CollectWarnings(List<RestRequestConfig> requests) =>
-        requests.SelectMany((r, i) => r.Validate().Select(w => $"[{i + 1}] {w}")).ToList();
+        requests.SelectMany((r, i) => (r?.Validate() ?? []).Select(w => $"[{i + 1}] {w}")).ToList();
 
     public record WritePlan
     {
@@ -237,13 +250,21 @@ public static class RestOrchestrator
     /// Agrupa los resultados por archivo de salida para que varios requests con el
     /// mismo 'output' se escriban de una sola vez (sin que cada escritura pise a la
     /// anterior) y deja aparte los que van en modo append.
+    ///
+    /// La clave interna se normaliza con <see cref="Path.GetFullPath"/>: asi
+    /// 'out.json' y './out.json' (o distinta capitalizacion en Windows) no generan
+    /// dos grupos que escriban el mismo archivo.
     /// </summary>
     public static WritePlan BuildWritePlan(
         List<ApiResponse> results,
         List<RestRequestConfig> requests,
         string defaultOutput)
     {
-        var overwriteGroups = new Dictionary<string, List<ApiResponse>>();
+        var comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        var overwriteGroups = new Dictionary<string, (string Path, List<ApiResponse> Responses)>(comparer);
         var appends = new List<(string Path, ApiResponse Response)>();
 
         for (int i = 0; i < results.Count; i++)
@@ -258,15 +279,33 @@ public static class RestOrchestrator
                 continue;
             }
 
-            if (!overwriteGroups.TryGetValue(requestOutput, out var group))
+            var key = NormalizePath(requestOutput);
+            if (!overwriteGroups.TryGetValue(key, out var group))
             {
-                group = [];
-                overwriteGroups[requestOutput] = group;
+                group = (requestOutput, []);
+                overwriteGroups[key] = group;
             }
 
-            group.Add(result);
+            group.Responses.Add(result);
         }
 
-        return new WritePlan { Overwrite = overwriteGroups, Appends = appends };
+        return new WritePlan
+        {
+            Overwrite = overwriteGroups.Values.ToDictionary(g => g.Path, g => g.Responses),
+            Appends = appends
+        };
+    }
+
+    private static string NormalizePath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Ruta invalida para GetFullPath: se agrupa por el texto original.
+            return path;
+        }
     }
 }
