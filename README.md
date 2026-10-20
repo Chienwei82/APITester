@@ -327,7 +327,9 @@ Pipeline (`.github/workflows/release.yml`):
 3. **Linux x64** — el mismo publish para `linux-x64`, renombrado a `APITester`, más un smoke test (`--help`) y un zip con los mismos archivos.
 4. **Release** — genera el `tar.gz` del código fuente y publica el release con los tres assets.
 
-Los jobs de empaquetado cachean NuGet y reintentan el `restore` hasta 3 veces, para que un fallo transitorio de nuget.org no tumbe el release.
+Los jobs de empaquetado cachean NuGet y hacen un `restore` explícito antes del `publish`, para que un problema de paquetes falle en ese paso con el error a la vista.
+
+> Ojo con los nombres de las variables de entorno de los workflows: no uses una llamada `VERSION`. MSBuild importa las variables de entorno como propiedades, así que `VERSION` se convierte en la propiedad `Version` de los proyectos y un tag como `pr-13` no es un *version string* válido: el restore falla con `NU1105` (que además NuGet no imprime) y el job muere con `MSB4181`. En el workflow se usa `RELEASE_VERSION`.
 
 Para publicar una versión definitiva:
 
