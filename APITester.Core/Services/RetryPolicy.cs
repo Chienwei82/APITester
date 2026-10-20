@@ -1,23 +1,29 @@
 namespace APITester.Core.Services;
 
-public class RetryPolicy
+/// <summary>
+/// Politica de reintentos de una operacion. Es un struct inmutable: no se asigna
+/// en cada request y no comparte estado entre ejecuciones.
+/// </summary>
+public readonly record struct RetryPolicy
 {
+    /// <summary>Tope del backoff exponencial (30s).</summary>
+    public const int MaxDelayMs = 30_000;
+
     public int MaxRetries { get; init; }
-    public int DelayMs { get; init; } = 1000;
+    public int DelayMs { get; init; }
     public bool UseExponentialBackoff { get; init; }
-    public List<int>? RetryOnStatusCodes { get; init; }
+    public IReadOnlyList<int>? RetryOnStatusCodes { get; init; }
 
-    private static readonly ThreadLocal<Random> _random = new(() => new Random());
+    public static RetryPolicy None => new() { DelayMs = 1000 };
 
-    public static RetryPolicy None => new();
-
-    public async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, ILogger? logger = null, CancellationToken cancellationToken = default)
+    public async Task<T> ExecuteAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
     {
         Exception? lastException = null;
-        T? lastResult = default;
-        var hasLastResult = false;
 
-        for (int attempt = 0; attempt <= MaxRetries; attempt++)
+        for (var attempt = 0; attempt <= MaxRetries; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -25,13 +31,11 @@ public class RetryPolicy
             {
                 var result = await operation(cancellationToken).ConfigureAwait(false);
 
-                // If result has a status code and we should retry on it, continue
-                if (attempt < MaxRetries && result is IHasStatusCode hasStatus && ShouldRetryOnStatus(hasStatus.StatusCode))
+                if (attempt < MaxRetries && result is IHasStatusCode status && ShouldRetryOnStatus(status.StatusCode))
                 {
-                    lastResult = result;
-                    hasLastResult = true;
+                    lastException = new HttpRequestException($"La API respondio con status {status.StatusCode}");
                     var delay = CalculateDelay(attempt);
-                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries} fallido (status {hasStatus.StatusCode}), reintentando en {delay}ms...");
+                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries + 1} fallido (status {status.StatusCode}), reintentando en {delay}ms...");
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
@@ -44,34 +48,39 @@ public class RetryPolicy
                 if (attempt < MaxRetries)
                 {
                     var delay = CalculateDelay(attempt);
-                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries} fallido, reintentando en {delay}ms...");
+                    logger?.Warn($"Intento {attempt + 1}/{MaxRetries + 1} fallido ({ex.Message}), reintentando en {delay}ms...");
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
 
-        if (hasLastResult)
-            return lastResult!;
-
-        throw new InvalidOperationException(
-            $"Operacion fallo despues de {MaxRetries + 1} intentos", lastException);
+        // Se propaga la causa del ultimo intento: el usuario necesita saber por que fallo.
+        throw new InvalidOperationException(DescribeFailure(lastException), lastException);
     }
 
-    private bool ShouldRetryOnStatus(int statusCode)
+    private string DescribeFailure(Exception? lastException)
     {
-        if (RetryOnStatusCodes is null || RetryOnStatusCodes.Count == 0)
-            return false;
-        return RetryOnStatusCodes.Contains(statusCode);
+        var attempts = $"{MaxRetries + 1} intentos";
+        return lastException is null
+            ? $"Operacion fallo despues de {attempts}"
+            : $"Operacion fallo despues de {attempts}: {lastException.Message}";
     }
+
+    private bool ShouldRetryOnStatus(int statusCode) =>
+        RetryOnStatusCodes is { Count: > 0 } codes && codes.Contains(statusCode);
 
     private int CalculateDelay(int attempt)
     {
-        if (!UseExponentialBackoff)
-            return DelayMs;
+        // Un valor negativo (config invalida) se trata como 0 para no romper Task.Delay.
+        var baseDelay = Math.Max(DelayMs, 0);
 
-        var exponentialDelay = DelayMs * (int)Math.Pow(2, attempt);
-        var jitter = (int)(_random.Value!.NextDouble() * DelayMs);
-        return Math.Min(exponentialDelay + jitter, 30000);
+        if (!UseExponentialBackoff)
+            return baseDelay;
+
+        // Shift sobre long: evita el overflow de DelayMs * 2^attempt en int.
+        var exponential = (long)baseDelay << Math.Min(attempt, 16);
+        var jitter = Random.Shared.Next(baseDelay + 1);
+        return (int)Math.Min(exponential + jitter, MaxDelayMs);
     }
 
     private static bool IsRetryable(Exception ex, CancellationToken cancellationToken)

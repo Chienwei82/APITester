@@ -13,10 +13,12 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly bool _redactHeaders;
 
-    public HttpExecutor(ILogger? logger = null, HttpClient? httpClient = null)
+    public HttpExecutor(ILogger? logger = null, HttpClient? httpClient = null, bool redactHeaders = true)
     {
         _logger = logger ?? new ConsoleLogger();
+        _redactHeaders = redactHeaders;
         if (httpClient is not null)
         {
             _httpClient = httpClient;
@@ -51,7 +53,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
             {
                 MaxRetries = config.EffectiveRetries,
                 DelayMs = config.EffectiveRetryDelayMilliseconds,
-                UseExponentialBackoff = config.UseExponentialBackoff,
+                UseExponentialBackoff = config.EffectiveUseExponentialBackoff,
                 RetryOnStatusCodes = config.RetryOnStatusCodes
             };
 
@@ -68,8 +70,9 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
         {
             return new ApiResponse { Error = ex.Message };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not (OutOfMemoryException or AccessViolationException))
         {
+            // Un request no puede tumbar el resto de la ejecucion: se reporta como error.
             return new ApiResponse { Error = $"{ex.GetType().Name}: {ex.Message}" };
         }
     }
@@ -89,7 +92,7 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
                     Name = config.Name,
                     Url = config.Url,
                     Method = config.Method,
-                    RequestHeaders = sentHeaders
+                    RequestHeaders = _redactHeaders ? HeaderRedactor.Redact(sentHeaders) : sentHeaders
                 }
             };
 
@@ -101,28 +104,39 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
                 cancellationToken, timeoutCts.Token);
 
             var sw = Stopwatch.StartNew();
+            // ResponseHeadersRead: el body se lee en streaming, asi 'maxBodyBytes'
+            // limita de verdad la memoria usada por respuestas grandes.
             using var httpResponse = await client.SendAsync(
-                request, linkedCts.Token).ConfigureAwait(false);
+                request, HttpCompletionOption.ResponseHeadersRead, linkedCts.Token).ConfigureAwait(false);
             sw.Stop();
 
-            await FillResponseAsync(response, httpResponse, sw, config.EffectiveMaxBodyBytes).ConfigureAwait(false);
+            await FillResponseAsync(
+                response, httpResponse, sw, config.EffectiveMaxBodyBytes, linkedCts.Token).ConfigureAwait(false);
             return response;
         }
     }
 
-    private static async Task FillResponseAsync(ApiResponse target, HttpResponseMessage httpResponse, Stopwatch sw, long bodyLimit)
+    private async Task FillResponseAsync(
+        ApiResponse target,
+        HttpResponseMessage httpResponse,
+        Stopwatch sw,
+        long bodyLimit,
+        CancellationToken cancellationToken)
     {
-        var (bodyBytes, truncated) = await ReadBodyAsync(httpResponse.Content, bodyLimit).ConfigureAwait(false);
+        var (bodyBytes, truncated) = await ReadBodyAsync(
+            httpResponse.Content, bodyLimit, cancellationToken).ConfigureAwait(false);
         var bodyText = Encoding.UTF8.GetString(bodyBytes);
+        var headers = HeaderCollector.CollectFrom(httpResponse);
 
         target.Response = new ResponseInfo
         {
             StatusCode = (int)httpResponse.StatusCode,
             StatusText = httpResponse.ReasonPhrase,
-            Headers = HeaderCollector.CollectFrom(httpResponse),
+            Headers = _redactHeaders ? HeaderRedactor.Redact(headers) : headers,
             BodyRaw = bodyText,
             TimeMs = sw.ElapsedMilliseconds,
-            SizeBytes = (int)(httpResponse.Content.Headers.ContentLength ?? bodyBytes.LongLength)
+            SizeBytes = httpResponse.Content.Headers.ContentLength ?? bodyBytes.LongLength,
+            Truncated = truncated ? true : null
         };
 
         if (truncated)
@@ -138,28 +152,33 @@ public class HttpExecutor : IApiExecutor<RestRequestConfig>, IDisposable
     /// Lee el body con limite para acotar el uso de memoria en respuestas grandes.
     /// Devuelve los bytes leidos (truncados) y si hubo truncamiento.
     /// </summary>
-    private static async Task<(byte[] Bytes, bool Truncated)> ReadBodyAsync(HttpContent content, long limit)
+    private static async Task<(byte[] Bytes, bool Truncated)> ReadBodyAsync(
+        HttpContent content,
+        long limit,
+        CancellationToken cancellationToken)
     {
         if (limit <= 0) return (Array.Empty<byte>(), false);
 
-        await using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
-        using var ms = new MemoryStream();
-        var buffer = new byte[16384];
-        int total = 0;
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var ms = new MemoryStream(capacity: (int)Math.Min(limit, 64 * 1024));
+        var buffer = new byte[16 * 1024];
+        long total = 0;
 
         while (total < limit)
         {
-            var read = await stream.ReadAsync(buffer).ConfigureAwait(false);
+            // Nunca se pide mas de lo que falta: si se leyera el buffer completo
+            // se consumiria el resto del body y no se detectaria el truncamiento.
+            var toRead = (int)Math.Min(buffer.Length, limit - total);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
 
-            var toWrite = (int)Math.Min(read, limit - total);
-            ms.Write(buffer, 0, toWrite);
-            total += toWrite;
+            ms.Write(buffer, 0, read);
+            total += read;
         }
 
         // Sea cual sea el motivo por el que paro el bucle (limite o fin del body),
         // una lectura extra basta para saber si quedo contenido por leer.
-        var trailing = await stream.ReadAsync(buffer).ConfigureAwait(false);
+        var trailing = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         return (ms.ToArray(), trailing > 0);
     }
 

@@ -20,14 +20,20 @@ public static class RequestBuilder
         var headers = ResolveHeaders(config);
         var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        var method = new HttpMethod(config.Method.ToUpperInvariant());
+        // 'method' puede llegar null desde el JSON aunque el tipo no lo permita.
+        var methodName = string.IsNullOrWhiteSpace(config.Method) ? "GET" : config.Method.Trim();
+        var method = new HttpMethod(methodName.ToUpperInvariant());
         var request = new HttpRequestMessage(method, BuildUrlWithQuery(config));
 
         foreach (var (key, value) in headers)
         {
             if (HeaderRules.IsContentType(key)) continue;
 
-            request.Headers.TryAddWithoutValidation(key, value);
+            // TryAddWithoutValidation devuelve false si el nombre del header no es
+            // valido: sin este chequeo se descartaria en silencio.
+            if (!request.Headers.TryAddWithoutValidation(key, value))
+                throw new InvalidOperationException($"Header '{key}' no es valido");
+
             sentHeaders[key] = value;
         }
 

@@ -1,19 +1,26 @@
-name: .NET CI
+name: CI
 
+# Workflow reutilizable: Release lo invoca en cada PR y ademas corre solo en
+# los push a las ramas principales.
 on:
   push:
     branches: [main, master]
-    tags:
-      - "v*"
-  pull_request:
-    branches: [main, master]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
+    name: Build y tests (.NET 10)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup .NET
@@ -21,22 +28,29 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'APITester.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore APITester.slnx
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build APITester.slnx --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --verbosity normal
+        run: dotnet test APITester.slnx --no-build --configuration Release --verbosity normal
 
-      - name: Publish (optional artifact)
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -o ./publish
+  scripts:
+    name: Scripts de mantenimiento (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Upload artifact
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: APITester-rest
-          path: ./publish
+      - name: Verificar sintaxis
+        run: python3 -m compileall -q scripts

@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json;
+
 namespace APITester.Core.Services;
 
 /// <summary>
@@ -9,7 +12,10 @@ public static class ConfigFileReader
 {
     private const long MaxFileSizeBytes = 10 * 1024 * 1024;
 
-    public static async Task<string> ReadAsync(string filePath, string singleKeyField)
+    public static async Task<string> ReadAsync(
+        string filePath,
+        string singleKeyField,
+        CancellationToken cancellationToken = default)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"No se encuentra '{filePath}'");
@@ -17,9 +23,9 @@ public static class ConfigFileReader
         var fileInfo = new FileInfo(filePath);
         if (fileInfo.Length > MaxFileSizeBytes)
             throw new InvalidDataException(
-                $"Archivo de configuracion demasiado grande ({fileInfo.Length / 1024.0:F0}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
+                $"Archivo de configuracion demasiado grande ({Kilobytes(fileInfo.Length)}KB). Limite: {MaxFileSizeBytes / 1024 / 1024}MB");
 
-        var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+        var json = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(json))
             throw new InvalidDataException(NoRequestsMessage(singleKeyField));
@@ -29,4 +35,24 @@ public static class ConfigFileReader
 
     public static string NoRequestsMessage(string singleKeyField) =>
         $"JSON sin requests. Usa '{singleKeyField}' para uno o '[{{ \"{singleKeyField}\": ... }}]' para varios.";
+
+    /// <summary>
+    /// Parsea el texto y unifica el mensaje de JSON invalido. El documento
+    /// resultante sirve para detectar la forma del archivo y deserializarlo una
+    /// sola vez.
+    /// </summary>
+    public static JsonDocument ParseDocument(string json)
+    {
+        try
+        {
+            return JsonDocument.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
+        }
+    }
+
+    private static string Kilobytes(long bytes) =>
+        (bytes / 1024.0).ToString("F0", CultureInfo.InvariantCulture);
 }

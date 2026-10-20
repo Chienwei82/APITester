@@ -20,54 +20,55 @@ public static class RestConfigLoader
         PropertyNameCaseInsensitive = true
     };
 
-    public static async Task<List<RestRequestConfig>> LoadAsync(string filePath)
+    public static async Task<List<RestRequestConfig>> LoadAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
-        var json = await ConfigFileReader.ReadAsync(filePath, singleKeyField: "url").ConfigureAwait(false);
+        var json = await ConfigFileReader.ReadAsync(filePath, singleKeyField: "url", cancellationToken)
+            .ConfigureAwait(false);
+
+        // Un solo parseo: el mismo documento sirve para detectar la forma del
+        // archivo y para deserializar.
+        using var document = ConfigFileReader.ParseDocument(json);
 
         // Objeto con "defaults"/"requests"/"request" => estructura de archivo REST.
         // Cualquier otro JSON (array o request unico) lo resuelve el loader generico.
-        return HasConfigFileStructure(json) ? LoadFromConfigFile(json) : GenericLoader.Parse(json);
+        return HasConfigFileStructure(document.RootElement)
+            ? LoadFromConfigFile(document.RootElement)
+            : GenericLoader.Parse(document);
     }
 
-    private static bool HasConfigFileStructure(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return false;
-            }
+    private static bool HasConfigFileStructure(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object
+        && (root.TryGetProperty("defaults", out _)
+            || root.TryGetProperty("requests", out _)
+            || root.TryGetProperty("request", out _));
 
-            return doc.RootElement.TryGetProperty("defaults", out _)
-                || doc.RootElement.TryGetProperty("requests", out _)
-                || doc.RootElement.TryGetProperty("request", out _);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
-        }
-    }
-
-    private static List<RestRequestConfig> LoadFromConfigFile(string json)
+    private static List<RestRequestConfig> LoadFromConfigFile(JsonElement root)
     {
         RestConfigFile? configFile;
         try
         {
-            configFile = JsonSerializer.Deserialize<RestConfigFile>(json, JsonOptions);
+            configFile = root.Deserialize<RestConfigFile>(JsonOptions);
         }
         catch (JsonException ex)
         {
             throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
         }
 
-        if (configFile?.Requests is { Count: > 0 })
+        if (configFile?.Requests is { Count: > 0 } requests)
         {
-            foreach (var req in configFile.Requests)
+            // Un array puede traer 'null' entre los elementos: se descartan.
+            var usable = new List<RestRequestConfig>(requests.Count);
+            foreach (var request in requests)
             {
-                req.ApplyDefaults(configFile.Defaults);
+                if (request is null) continue;
+                request.ApplyDefaults(configFile.Defaults);
+                usable.Add(request);
             }
-            return configFile.Requests;
+
+            if (usable.Count > 0)
+                return usable;
         }
 
         if (configFile?.Request is not null)

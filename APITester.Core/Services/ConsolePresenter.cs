@@ -6,10 +6,9 @@ namespace APITester.Core.Services;
 
 /// <summary>
 /// Presenta la salida en consola. La configuracion (progreso, colores) es
-/// por-instancia para cada ejecucion y no hay estado mutable compartido entre
-/// runs. El <see cref="OutputLock"/> se mantiene estatico y compartido por todos
-/// los presenters/loggers para que la secuencia cambio-de-color/escritura/reset
-/// sea atomica entre hilos.
+/// por-instancia para cada ejecucion. <see cref="OutputLock"/> se comparte con
+/// <see cref="ConsoleLogger"/> para que la secuencia cambio-de-color/escritura/
+/// reset sea atomica y no se mezclen colores entre componentes.
 /// </summary>
 [SuppressMessage("Performance", "CA1822", Justification = "Metodos de UI agrupados en el presenter por cohesion de obra")]
 public sealed class ConsolePresenter
@@ -76,7 +75,7 @@ public sealed class ConsolePresenter
         }
     }
 
-    private void PrintProgressBar(int completed, int total)
+    private static void PrintProgressBar(int completed, int total)
     {
         if (total <= 1) return;
 
@@ -124,7 +123,7 @@ public sealed class ConsolePresenter
 
                 Uso:
                   dotnet run              Abre el modo interactivo (menu en consola)
-                  dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color]
+                  dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [--no-redact]
 
                 Argumentos:
                   -c, --config       Archivo JSON (default: {{defaultConfig}})
@@ -134,6 +133,7 @@ public sealed class ConsolePresenter
                   --strict           Fallar si hay advertencias de validacion
                   --quiet            Solo mostrar errores y resumen final
                   --no-color         Deshabilitar salida con colores
+                  --no-redact        Guardar headers sensibles (Authorization, Cookie) sin enmascarar
                   -h, --help         Muestra esta ayuda
 
                 Variables de entorno:
@@ -193,7 +193,7 @@ public sealed class ConsolePresenter
         }
     }
 
-    private static string FormatBytes(int bytes) => bytes switch
+    private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes}B",
         < 1024 * 1024 => $"{bytes / 1024.0:F1}KB",

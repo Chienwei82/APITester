@@ -23,49 +23,47 @@ public class GenericConfigLoader<T> where T : class
         _singleKeyField = singleKeyField;
     }
 
-    public async Task<List<T>> LoadAsync(string filePath)
+    public async Task<List<T>> LoadAsync(string filePath, CancellationToken cancellationToken = default)
     {
-        var json = await ConfigFileReader.ReadAsync(filePath, _singleKeyField).ConfigureAwait(false);
+        var json = await ConfigFileReader.ReadAsync(filePath, _singleKeyField, cancellationToken)
+            .ConfigureAwait(false);
         return Parse(json);
     }
 
     /// <summary>Interpreta el texto ya leido: array de items o item unico.</summary>
     public List<T> Parse(string json)
     {
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(json);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException($"Error deserializando JSON: {ex.Message}", ex);
-        }
+        using var doc = ConfigFileReader.ParseDocument(json);
+        return Parse(doc);
+    }
 
-        using (doc)
+    /// <summary>
+    /// Interpreta un documento ya parseado: evita volver a leer y parsear el JSON
+    /// cuando el llamador ya lo hizo para decidir la forma del archivo.
+    /// </summary>
+    public List<T> Parse(JsonDocument document)
+    {
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
         {
-            if (doc.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                var items = Deserialize<List<T>>(json, "lista");
-                if (items is { Count: > 0 })
-                    return items;
-            }
-            else if (doc.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                var single = Deserialize<T>(json, "objeto");
-                if (single is not null && _isSingleValid(single))
-                    return [single];
-            }
+            var items = Deserialize<List<T>>(document.RootElement, "lista");
+            if (items is { Count: > 0 })
+                return items;
+        }
+        else if (document.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            var single = Deserialize<T>(document.RootElement, "objeto");
+            if (single is not null && _isSingleValid(single))
+                return [single];
         }
 
         throw new InvalidDataException(ConfigFileReader.NoRequestsMessage(_singleKeyField));
     }
 
-    private static TValue? Deserialize<TValue>(string json, string kind) where TValue : class
+    private static TValue? Deserialize<TValue>(JsonElement element, string kind) where TValue : class
     {
         try
         {
-            return JsonSerializer.Deserialize<TValue>(json, JsonOptions);
+            return element.Deserialize<TValue>(JsonOptions);
         }
         catch (JsonException ex)
         {

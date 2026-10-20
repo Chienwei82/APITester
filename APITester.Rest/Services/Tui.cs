@@ -111,6 +111,26 @@ public static class Tui
         return prompt.Show(console);
     }
 
+    /// <summary>Pide un entero de 64 bits (por ejemplo limites de bytes).</summary>
+    public static long AskLong(
+        IAnsiConsole console,
+        string label,
+        long defaultValue,
+        Func<long, string?>? validator,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var prompt = new TextPrompt<long>(label).DefaultValue(defaultValue);
+        if (validator is not null)
+        {
+            prompt = prompt.Validate(value =>
+                validator(value) is { } error ? ValidationResult.Error(error) : ValidationResult.Success());
+        }
+
+        return prompt.Show(console);
+    }
+
     /// <summary>Pide una linea con la entrada oculta (password).</summary>
     public static string AskSecret(IAnsiConsole console, string label, CancellationToken cancellationToken)
     {

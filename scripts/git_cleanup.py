@@ -5,19 +5,21 @@ un PR desde la web.
 
 Qué hace:
 1. git fetch --prune <remote>
-2. Si la rama por defecto (main/master) local está detrás de origin y es
+2. Si la rama por defecto (main/master) local está detrás del remoto y es
    fast-forward, la actualiza (solo si estamos parados en ella).
 3. Detecta ramas locales cuyo tracking remoto [origin/xxx] ya no existe
-   (es decir, fueron borradas al mergear el PR) y las elimina con `-d`
-   (cortés: nunca borra algo sin mergear). Si la rama tiene un worktree
-   adjunto, primero lo elimina.
+   (es decir, fueron borradas al mergear el PR) y las elimina. Si la rama
+   tiene un worktree adjunto, primero lo elimina.
 4. Si `.gitignore` quedó modificado por el setup de un worktree previo
    (única diferencia: bloque `# Git worktrees` con `.worktrees/`), lo revierte.
 
 Seguridad:
 - Nunca borra la rama actual ni la rama por defecto.
-- Nunca usa `-D`: un branch sin mergear se reporta y se deja intacto.
-- `--ff-only` / fetch de main: si diverge, no fuerza nada, solo reporta.
+- Usa `-d` (borrado seguro) y solo recurre a `-D` cuando demuestra antes que
+  el contenido de la rama ya está en la rama por defecto. Es necesario porque
+  un merge con squash no deja los commits originales como ancestros y
+  `git branch -d` los rechaza.
+- `--ff-only` / fetch: si diverge, no fuerza nada, solo reporta.
 - Nada de esto se ejecuta sin confirmación (salvo `--yes`).
 
 Uso:
@@ -29,91 +31,19 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Final
+
+try:  # ejecutado como script (python3 scripts/git_cleanup.py)
+    from _git import GitError, confirm, ensure_repo, git, git_ok, git_try, info, warn
+except ImportError:  # ejecutado como modulo (python3 -m scripts.git_cleanup)
+    from scripts._git import GitError, confirm, ensure_repo, git, git_ok, git_try, info, warn
 
 GITIGNORE_WORKTREE_MARK: Final = "# Git worktrees"
 WORKTREE_IGNORE_LINE: Final = ".worktrees/"
 DEFAULT_BRANCH_CANDIDATES: Final = ("main", "master", "trunk")
-GIT_TIMEOUT: Final = 120  # segundos; evita cuelgues silenciosos en fetch
-
-
-class GitError(RuntimeError):
-    """Error legible de git (sin traceback para el usuario final)."""
-
-
-def info(message: str) -> None:
-    print(f"  {message}")
-
-
-def warn(message: str) -> None:
-    print(f"  {message}", file=sys.stderr)
-
-
-def _run(args: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:
-    """Ejecuta git de forma uniforme (utf-8, timeout, sin ventana en Windows)."""
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            check=False,  # el chequeo lo hacemos nosotros para poder tipar el error
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=GIT_TIMEOUT,
-        )
-    except FileNotFoundError as exc:  # git no instalado / no en el PATH
-        raise GitError("no se encontró el ejecutable 'git' en el PATH.") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise GitError(f"git {' '.join(args)} tardó más de {GIT_TIMEOUT}s y se canceló.") from exc
-    if check and result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or f"código {result.returncode}"
-        raise GitError(f"git {' '.join(args)}: {detail}")
-    return result
-
-
-def git(args: list[str]) -> str:
-    """Ejecuta git y devuelve stdout sin el salto de línea final."""
-    return _run(args, check=True).stdout.rstrip("\n")
-
-
-def git_try(args: list[str]) -> str | None:
-    """Ejecuta git y devuelve stdout, o None si git falla (no imprime nada)."""
-    result = _run(args, check=False)
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip()
-
-
-def git_ok(args: list[str]) -> bool:
-    """Ejecuta git y devuelve True si sale 0 (no imprime nada)."""
-    try:
-        return _run(args, check=False).returncode == 0
-    except GitError:
-        return False
-
-
-def ensure_repo() -> str:
-    """Valida que estamos en un repo git y devuelve su raíz (path absoluto)."""
-    if shutil.which("git") is None:
-        raise GitError("no se encontró el ejecutable 'git' en el PATH.")
-    if not git_ok(["rev-parse", "--is-inside-work-tree"]):
-        raise GitError("el directorio actual no está dentro de un repositorio git.")
-    return git(["rev-parse", "--show-toplevel"])
-
-
-def confirm(prompt: str, yes_all: bool) -> bool:
-    if yes_all:
-        return True
-    try:
-        answer = input(f"{prompt} [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        # Entrada no interactiva o Ctrl-C: no confirmado.
-        return False
-    return answer in ("y", "yes")
 
 
 def get_current_branch() -> str:
@@ -132,10 +62,10 @@ def get_default_branch(remote: str) -> str | None:
 
 
 def get_branches_with_gone_tracking(remote: str) -> list[str]:
-    """Ramas locales cuyo upstream remoto ya no existe (jacket [gone]).
+    """Ramas locales cuyo upstream remoto ya no existe (marca [gone]).
 
-    Una sola llamada a git: `%(*:...)` no aplica, así que listamos los upstreams
-    configurados y las refs remotas existentes y comparamos en Python.
+    Dos llamadas a git (ramas con su upstream y refs remotas existentes) en vez
+    de un `rev-parse` por rama; la comparacion se hace en Python.
     """
     out = git([
         "for-each-ref",
@@ -190,17 +120,20 @@ def is_behind(branch: str, remote: str) -> bool:
     return left == 0 and right > 0
 
 
+def gitignore_path(repo_root: str) -> Path:
+    return Path(repo_root) / ".gitignore"
+
+
 def gitignore_has_worktree_mark(repo_root: str) -> bool:
     try:
-        with open(f"{repo_root}/.gitignore", encoding="utf-8") as f:
-            return GITIGNORE_WORKTREE_MARK in f.read()
+        return GITIGNORE_WORKTREE_MARK in gitignore_path(repo_root).read_text(encoding="utf-8")
     except FileNotFoundError:
         return False
 
 
 def gitignore_diff(repo_root: str) -> str:
     """Diff de .gitignore contra HEAD (incluye cambios staged y unstaged)."""
-    return git(["diff", "HEAD", "--", f"{repo_root}/.gitignore"])
+    return git(["diff", "HEAD", "--", str(gitignore_path(repo_root))])
 
 
 def gitignore_only_worktree_mark(repo_root: str) -> bool:
@@ -223,26 +156,43 @@ def remove_worktree(path: str, dry: bool) -> bool:
     if dry:
         info(f"[dry] worktree remove {path}")
         return True
-    try:
-        _run(["worktree", "remove", path], check=True)
-        info(f"[ok] worktree removido: {path}")
+    if git_try(["worktree", "remove", path]) is None:
+        warn(f"[skip] worktree con cambios sin commitear, no lo toco: {path}")
+        return False
+    info(f"[ok] worktree removido: {path}")
+    return True
+
+
+def branch_content_integrated(branch: str, base: str) -> bool:
+    """True si el contenido de `branch` ya está integrado en `base`.
+
+    Cubre los merges con squash: los commits originales no quedan como
+    ancestros, pero al fusionar la rama sobre `base` el árbol resultante es
+    idéntico al de `base` (la rama no aporta ningún cambio nuevo).
+    """
+    if git_ok(["merge-base", "--is-ancestor", branch, base]):
         return True
-    except GitError as exc:
-        warn(f"[skip] worktree con cambios sin commitear, no lo toco: {exc}")
+
+    base_tree = git_try(["rev-parse", f"{base}^{{tree}}"])
+    # merge-tree --write-tree imprime el árbol resultante y falla si hay conflictos.
+    merged_tree = git_try(["merge-tree", "--write-tree", "--no-messages", base, branch])
+    if not base_tree or not merged_tree:
         return False
 
+    return merged_tree.splitlines()[0].strip() == base_tree.strip()
 
-def delete_branch(name: str, dry: bool) -> bool:
+
+def delete_branch(name: str, dry: bool, *, force: bool = False) -> bool:
+    """Borra la rama con -d; usa -D solo si el llamador verificó la integración."""
+    flag = "-D" if force else "-d"
     if dry:
-        info(f"[dry] branch -d {name}")
+        info(f"[dry] branch {flag} {name}")
         return True
-    try:
-        _run(["branch", "-d", name], check=True)
-        info(f"[ok] rama eliminada: {name}")
-        return True
-    except GitError as exc:
-        warn(f"[skip] rama sin mergear completa, la dejo: {exc}")
+    if git_try(["branch", flag, name]) is None:
+        warn(f"[skip] rama sin mergear completa, la dejo: {name}")
         return False
+    info(f"[ok] rama eliminada: {name}")
+    return True
 
 
 @dataclass
@@ -313,11 +263,22 @@ def cleanup_branches(
             info("[skip] la rama por defecto no se borra.")
             report.skipped.append(branch)
             continue
+
+        # Un merge con squash no deja los commits como ancestros, así que
+        # `git branch -d` los rechaza. Se verifica el contenido antes de elegir
+        # entre borrado seguro (-d) y forzado (-D).
+        base = f"{remote}/{default}" if default else f"{remote}/HEAD"
+        integrated = branch_content_integrated(branch, base)
+        if integrated:
+            info(f"  -> {branch}: contenido ya integrado en '{base}' (merge con squash).")
+        else:
+            info(f"  -> {branch}: no se pudo confirmar que su contenido esté en '{base}'.")
+
         if dry:
             for wt in get_worktrees(branch):
                 info(f"[dry] worktree remove {wt}")
                 report.would_remove_worktrees.append(wt)
-            info(f"[dry] branch -d {branch}")
+            info(f"[dry] branch {'-D' if integrated else '-d'} {branch}")
             report.would_remove_branches.append(branch)
             continue
         if not confirm(f"  ¿Eliminar rama '{branch}'?", yes_all):
@@ -330,7 +291,7 @@ def cleanup_branches(
                 report.removed_worktrees.append(wt)
             else:
                 ok = False
-        if ok and delete_branch(branch, dry):
+        if ok and delete_branch(branch, dry, force=integrated):
             report.removed_branches.append(branch)
         else:
             report.skipped.append(branch)
@@ -353,7 +314,7 @@ def restore_gitignore(repo_root: str, dry: bool, yes_all: bool, report: Report) 
     if not confirm("  ¿Revertir .gitignore?", yes_all):
         info("[skip] cancelado por el usuario: .gitignore")
         return
-    git(["checkout", "HEAD", "--", f"{repo_root}/.gitignore"])
+    git(["checkout", "HEAD", "--", str(gitignore_path(repo_root))])
     info("[ok] .gitignore restaurado")
     report.gitignore_restored = True
 

@@ -67,7 +67,8 @@ public sealed class InteractiveSession
                     await RunWizardAsync(runSingle, cancellationToken).ConfigureAwait(false);
                     break;
                 case MainMenu.Help:
-                    new ConsolePresenter().PrintHelp("REST", _options.ConfigFile);
+                    new ConsolePresenter(!_options.Quiet, !_options.NoColor)
+                        .PrintHelp("REST", CliArgs.DefaultConfigFile);
                     break;
                 case MainMenu.Exit:
                     return 0;
@@ -116,7 +117,8 @@ public sealed class InteractiveSession
 
         if (!File.Exists(path))
         {
-            Tui.Warn(_console, $"No se encuentra '{path}'.");
+            Tui.Warn(_console, $"No se encuentra '{path}'. Se mantiene el archivo actual.");
+            return;
         }
 
         _options = _options with { ConfigFile = path };
