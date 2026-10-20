@@ -317,15 +317,17 @@ Assets de cada release:
 | Plataforma | Archivo | Uso |
 |---|---|---|
 | Windows x64 | `APITester-<version>-windows-x64.zip` | Contiene `APITester.exe` self-contained (no requiere .NET instalado): descomprimir y ejecutar |
-| Linux x64 | `APITester-<version>-x86_64.AppImage` | `chmod +x APITester-<version>-x86_64.AppImage` y ejecutarlo (sin argumentos abre el menú interactivo) |
+| Linux x64 | `APITester-<version>-linux-x64.zip` | Contiene `APITester` self-contained: descomprimir, `chmod +x APITester` y ejecutar (sin argumentos abre el menú interactivo) |
 | Código fuente | `APITester-<version>-source.tar.gz` | Snapshot del commit etiquetado (`git archive`) |
 
 Pipeline (`.github/workflows/release.yml`):
 
-1. **CI** — `dotnet restore` / `build` / `test` con el workflow reutilizable `.github/workflows/dotnet.yml` (147 tests). Si falla, no hay release.
+1. **CI** — `dotnet restore` / `build` / `test` con el workflow reutilizable `.github/workflows/dotnet.yml` (176 tests). Si falla, no hay release.
 2. **Windows x64** — `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true` y zip con `APITester.exe`, `rest-config.json`, `README.md` y `LICENSE`.
-3. **Linux x64** — mismo publish para `linux-x64` y empaquetado como AppImage con `.github/scripts/build-appimage.sh` (icono en `assets/apitester.png`), más un smoke test del AppImage.
+3. **Linux x64** — el mismo publish para `linux-x64`, renombrado a `APITester`, más un smoke test (`--help`) y un zip con los mismos archivos.
 4. **Release** — genera el `tar.gz` del código fuente y publica el release con los tres assets.
+
+Los jobs de empaquetado cachean NuGet y reintentan el `restore` hasta 3 veces, para que un fallo transitorio de nuget.org no tumbe el release.
 
 Para publicar una versión definitiva:
 
@@ -334,11 +336,11 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Los scripts de empaquetado (`.github/scripts/build-appimage.sh` y `.github/scripts/make-zip.py`) se pueden ejecutar localmente; por ejemplo:
+Los scripts de empaquetado (`.github/scripts/make-zip.py`) se pueden ejecutar localmente; por ejemplo:
 
 ```bash
 dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o build/linux-x64
-bash .github/scripts/build-appimage.sh build/linux-x64 build/APITester-local-x86_64.AppImage
+python3 .github/scripts/make-zip.py build/linux-x64 build/APITester-local-linux-x64.zip
 ```
 
 > Si el release falla con un error de permisos (403), revisar *Settings → Actions → General → Workflow permissions*: el workflow necesita `contents: write` para crear el release y el tag.

@@ -3,7 +3,7 @@ name: Release
 # Cada PR genera un release (pre-release con tag `pr-<numero>`) y cada tag `v*`
 # genera un release definitivo. Assets en todos los casos:
 #   - Windows x64: zip con APITester.exe (self-contained, un solo archivo)
-#   - Linux x64:   AppImage
+#   - Linux x64:   zip con APITester (self-contained, un solo archivo)
 #   - Codigo fuente: tar.gz generado con `git archive`
 on:
   pull_request:
@@ -96,6 +96,29 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'APITester.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Restaurar antes de publicar: si nuget.org falla de forma transitoria,
+      # el error se ve en este paso en vez de en el publish.
+      - name: Restore
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 --verbosity normal; then
+              exit 0
+            fi
+            echo "::warning::restore fallo (intento ${attempt}/3); reintentando en $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "::error::no se pudieron restaurar los paquetes NuGet"
+          exit 1
+
       - name: Publicar win-x64
         run: |
           dotnet publish APITester.Rest/APITester.Rest.csproj \
@@ -127,7 +150,7 @@ jobs:
 
   # ------------------------------------------------------------ linux x64
   linux-x64:
-    name: Linux x64 (AppImage)
+    name: Linux x64 (zip)
     runs-on: ubuntu-latest
     needs: [ci, meta]
     env:
@@ -141,6 +164,27 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'APITester.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if dotnet restore APITester.Rest/APITester.Rest.csproj --runtime linux-x64 --verbosity normal; then
+              exit 0
+            fi
+            echo "::warning::restore fallo (intento ${attempt}/3); reintentando en $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "::error::no se pudieron restaurar los paquetes NuGet"
+          exit 1
+
       - name: Publicar linux-x64
         run: |
           dotnet publish APITester.Rest/APITester.Rest.csproj \
@@ -152,20 +196,28 @@ jobs:
             -p:DebugType=none \
             --output build/linux-x64
 
-      - name: Construir AppImage
-        run: bash .github/scripts/build-appimage.sh build/linux-x64 "build/APITester-${VERSION}-x86_64.AppImage"
-
-      - name: Smoke test del AppImage
+      - name: Empaquetar zip
         run: |
           set -euo pipefail
-          APPIMAGE_EXTRACT_AND_RUN=1 "./build/APITester-${VERSION}-x86_64.AppImage" --help > /dev/null
-          echo "El AppImage arranca correctamente."
+          stage="build/APITester-${VERSION}-linux-x64"
+          mkdir -p "$stage"
+          install -m 0755 build/linux-x64/APITester.Rest "$stage/APITester"
+          cp APITester.Rest/rest-config.json "$stage/rest-config.json"
+          cp README.md LICENSE "$stage/"
+          python3 .github/scripts/make-zip.py "$stage" "build/APITester-${VERSION}-linux-x64.zip"
+          unzip -l "build/APITester-${VERSION}-linux-x64.zip"
+
+      - name: Smoke test del binario
+        run: |
+          set -euo pipefail
+          "build/APITester-${VERSION}-linux-x64/APITester" --help > /dev/null
+          echo "El binario de Linux arranca correctamente."
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
           name: linux-x64
-          path: build/*.AppImage
+          path: build/*linux-x64.zip
           if-no-files-found: error
 
   # --------------------------------------------------------------- release
@@ -264,7 +316,7 @@ jobs:
             echo "### Descargas"
             echo
             echo "- APITester-${VERSION}-windows-x64.zip: APITester.exe self-contained para Windows x64 (extraer y ejecutar; no requiere .NET instalado)."
-            echo "- APITester-${VERSION}-x86_64.AppImage: AppImage para Linux x86_64 (dar permiso de ejecución y correr)."
+            echo "- APITester-${VERSION}-linux-x64.zip: binario self-contained para Linux x64 (extraer, dar permiso de ejecución y correr; no requiere .NET instalado)."
             echo "- APITester-${VERSION}-source.tar.gz: código fuente completo de este PR."
             echo
             echo "Este release es una pre-release asociada al PR; se reemplaza en cada push nuevo a la rama."
@@ -282,7 +334,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             build/APITester-*-windows-x64.zip
-            build/APITester-*-x86_64.AppImage
+            build/APITester-*-linux-x64.zip
             dist/APITester-*-source.tar.gz
 
       - name: Crear release de version
@@ -295,7 +347,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             build/APITester-*-windows-x64.zip
-            build/APITester-*-x86_64.AppImage
+            build/APITester-*-linux-x64.zip
             dist/APITester-*-source.tar.gz
 
       - name: Resumen
@@ -305,7 +357,7 @@ jobs:
             echo
             echo "| Asset | Tamaño |"
             echo "|---|---|"
-            for f in build/*.zip build/*.AppImage dist/*.tar.gz; do
+            for f in build/*.zip dist/*.tar.gz; do
               [ -f "$f" ] || continue
               printf '| %s | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
             done
