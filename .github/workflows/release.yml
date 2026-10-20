@@ -237,7 +237,9 @@ jobs:
             --prefix="APITester-${RELEASE_VERSION}/" \
             --output="dist/APITester-${RELEASE_VERSION}-source.tar.gz" \
             HEAD
-          tar -tzf "dist/APITester-${RELEASE_VERSION}-source.tar.gz" | head -n 5
+          # A un archivo y no a `head`: con pipefail el SIGPIPE de head haria fallar el paso.
+          tar -tzf "dist/APITester-${RELEASE_VERSION}-source.tar.gz" > "$RUNNER_TEMP/tar-list.txt"
+          head -n 5 "$RUNNER_TEMP/tar-list.txt"
 
       - name: Verificar tag existente (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
