@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using APITester.Core.Models;
@@ -19,30 +18,61 @@ public static class JsonFormatter
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    /// <summary>Escribe todos los resultados de un archivo de salida en el formato indicado.</summary>
-    public static async Task SaveAsync(string filePath, List<ApiResponse> results, OutputFormat format)
+    private static readonly byte[] NewLineBytes = "\n"u8.ToArray();
+
+    /// <summary>
+    /// Escribe todos los resultados de un archivo de salida en el formato indicado.
+    /// Serializa directo al stream (UTF-8, sin BOM): evita el string intermedio y
+    /// deja los archivos listos para cualquier parser JSON/NDJSON.
+    /// </summary>
+    public static async Task SaveAsync(
+        string filePath,
+        IReadOnlyList<ApiResponse> results,
+        OutputFormat format,
+        CancellationToken cancellationToken = default)
     {
         EnsureDirectoryExists(filePath);
 
+        await using var stream = OpenWrite(filePath, FileMode.Create);
         if (format == OutputFormat.Ndjson)
         {
-            await using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
             foreach (var result in results)
-                await writer.WriteLineAsync(JsonSerializer.Serialize(result, CompactOptions)).ConfigureAwait(false);
+            {
+                await SerializeLineAsync(stream, result, CompactOptions, cancellationToken).ConfigureAwait(false);
+            }
             return;
         }
 
-        object outputData = results.Count == 1 ? results[0] : results;
-        var json = JsonSerializer.Serialize(outputData, IndentedOptions);
-        await File.WriteAllTextAsync(filePath, json, Encoding.UTF8).ConfigureAwait(false);
+        if (results.Count == 1)
+            await JsonSerializer.SerializeAsync(stream, results[0], IndentedOptions, cancellationToken).ConfigureAwait(false);
+        else
+            await JsonSerializer.SerializeAsync(stream, results, IndentedOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    public static async Task AppendToFileAsync(string filePath, ApiResponse result)
+    /// <summary>Agrega una respuesta como linea NDJSON (sin BOM, aunque cree el archivo).</summary>
+    public static async Task AppendToFileAsync(
+        string filePath,
+        ApiResponse result,
+        CancellationToken cancellationToken = default)
     {
-        var json = JsonSerializer.Serialize(result, CompactOptions);
         EnsureDirectoryExists(filePath);
-        await File.AppendAllTextAsync(filePath, json + Environment.NewLine, Encoding.UTF8).ConfigureAwait(false);
+
+        await using var stream = OpenWrite(filePath, FileMode.Append);
+        await SerializeLineAsync(stream, result, CompactOptions, cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task SerializeLineAsync(
+        Stream stream,
+        ApiResponse result,
+        JsonSerializerOptions options,
+        CancellationToken cancellationToken)
+    {
+        await JsonSerializer.SerializeAsync(stream, result, options, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(NewLineBytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static FileStream OpenWrite(string filePath, FileMode mode) =>
+        new(filePath, mode, FileAccess.Write, FileShare.Read, bufferSize: 81920, FileOptions.Asynchronous);
 
     private static void EnsureDirectoryExists(string filePath)
     {

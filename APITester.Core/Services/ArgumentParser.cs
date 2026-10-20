@@ -30,6 +30,9 @@ public static class ArgumentParser
                 case "--no-color":
                     cli = cli with { NoColor = true };
                     continue;
+                case "--no-redact":
+                    cli = cli with { RedactSensitiveHeaders = false };
+                    continue;
             }
 
             // Flags que aceptan un valor: "--opt <val>" o "--opt=<val>".

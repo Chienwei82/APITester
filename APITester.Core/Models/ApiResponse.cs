@@ -35,5 +35,11 @@ public class ResponseInfo
     public JsonNode? Body { get; set; }
     public string? BodyRaw { get; init; }
     public long TimeMs { get; init; }
-    public int SizeBytes { get; init; }
+    public long SizeBytes { get; init; }
+
+    /// <summary>
+    /// True cuando el body supero 'maxBodyBytes' y solo se guardo una parte.
+    /// Se omite del JSON cuando es null (respuesta completa).
+    /// </summary>
+    public bool? Truncated { get; init; }
 }

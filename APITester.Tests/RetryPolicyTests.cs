@@ -198,4 +198,64 @@ public class RetryPolicyTests
 
         Assert.Equal(1, attempts);
     }
+
+    [Fact]
+    public async Task RetryOnStatusCodes_LastAttempt_ReturnsLatestResponse()
+    {
+        var policy = new RetryPolicy { MaxRetries = 1, DelayMs = 1, RetryOnStatusCodes = [500] };
+        var attempts = 0;
+
+        var result = await policy.ExecuteAsync(ct =>
+        {
+            attempts++;
+            return Task.FromResult(new ApiResponse
+            {
+                Request = new RequestInfo(),
+                Response = new ResponseInfo { StatusCode = 500 }
+            });
+        });
+
+        Assert.Equal(2, attempts);
+        Assert.Equal(500, ((IHasStatusCode)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task ExceptionOnLastAttempt_DoesNotReturnStaleResponse()
+    {
+        // Un 500 seguido de una excepcion no debe reportarse como respuesta valida:
+        // el usuario tiene que ver el error real del ultimo intento.
+        var policy = new RetryPolicy { MaxRetries = 1, DelayMs = 1, RetryOnStatusCodes = [500] };
+        var attempts = 0;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await policy.ExecuteAsync<ApiResponse>(ct =>
+            {
+                attempts++;
+                if (attempts == 1)
+                {
+                    return Task.FromResult(new ApiResponse
+                    {
+                        Request = new RequestInfo(),
+                        Response = new ResponseInfo { StatusCode = 500 }
+                    });
+                }
+
+                throw new HttpRequestException("boom");
+            }));
+
+        Assert.Equal(2, attempts);
+        Assert.Contains("boom", ex.Message);
+        Assert.IsType<HttpRequestException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task FailureMessage_IncludesLastExceptionCause()
+    {
+        var policy = new RetryPolicy { MaxRetries = 0, DelayMs = 1 };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await policy.ExecuteAsync<int>(ct => throw new HttpRequestException("connection refused")));
+
+        Assert.Contains("connection refused", ex.Message);
+    }
 }

@@ -370,4 +370,77 @@ public class HttpExecutorTests
             throw new InvalidOperationException("Should not reach here");
         }
     }
+
+    [Fact]
+    public async Task ExecuteAsync_RedactsSensitiveHeadersByDefault()
+    {
+        var (executor, _) = CreateExecutor();
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/data",
+            Method = "GET",
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer secret-token" }
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Request.RequestHeaders);
+        Assert.Equal("***", result.Request.RequestHeaders["Authorization"]);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithoutRedaction_KeepsSensitiveHeaders()
+    {
+        var handler = new MockHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        });
+        var executor = new HttpExecutor(httpClient: new HttpClient(handler), redactHeaders: false);
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/data",
+            Method = "GET",
+            Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer secret-token" }
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.Equal("Bearer secret-token", result.Request.RequestHeaders!["Authorization"]);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TruncatedBody_SetsTruncatedFlag()
+    {
+        var (executor, _) = CreateExecutor(HttpStatusCode.OK, new string('a', 4096));
+
+        var config = new RestRequestConfig
+        {
+            Url = "https://api.example.com/large",
+            Method = "GET",
+            MaxBodyBytes = 128
+        };
+
+        var result = await executor.ExecuteAsync(config);
+
+        Assert.NotNull(result.Response);
+        Assert.True(result.Response.Truncated);
+        Assert.Equal(128, result.Response.BodyRaw!.Length);
+        Assert.Null(result.Response.Body);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CompleteBody_LeavesTruncatedFlagNull()
+    {
+        var (executor, _) = CreateExecutor(HttpStatusCode.OK, "{}");
+
+        var result = await executor.ExecuteAsync(new RestRequestConfig
+        {
+            Url = "https://api.example.com/small",
+            Method = "GET"
+        });
+
+        Assert.Null(result.Response!.Truncated);
+    }
 }

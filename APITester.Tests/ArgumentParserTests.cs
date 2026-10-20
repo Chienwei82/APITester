@@ -150,4 +150,20 @@ public class ArgumentParserTests
 
         Assert.Contains("Argumento desconocido: --jobs", ex.Message);
     }
+
+    [Fact]
+    public void Parse_NoRedactFlag_DisablesRedaction()
+    {
+        var result = ArgumentParser.Parse(["--no-redact"], "rest-config.json");
+
+        Assert.False(result.RedactSensitiveHeaders);
+    }
+
+    [Fact]
+    public void Parse_Default_RedactsSensitiveHeaders()
+    {
+        var result = ArgumentParser.Parse([], "rest-config.json");
+
+        Assert.True(result.RedactSensitiveHeaders);
+    }
 }

@@ -198,4 +198,92 @@ public class ModelValidationTests
 
         Assert.Equal(30, config.EffectiveTimeoutInSeconds);
     }
+
+    [Fact]
+    public void ApplyDefaults_RetrySettings_AppliedWhenNull()
+    {
+        var config = new RestRequestConfig { Url = "https://example.com", Method = "GET" };
+
+        config.ApplyDefaults(new RestConfigDefaults
+        {
+            Retries = 3,
+            RetryDelayMilliseconds = 250,
+            UseExponentialBackoff = true,
+            RetryOnStatusCodes = [429, 503],
+            MaxBodyBytes = 2048
+        });
+
+        Assert.Equal(3, config.EffectiveRetries);
+        Assert.Equal(250, config.EffectiveRetryDelayMilliseconds);
+        Assert.True(config.EffectiveUseExponentialBackoff);
+        Assert.Equal([429, 503], config.RetryOnStatusCodes);
+        Assert.Equal(2048, config.EffectiveMaxBodyBytes);
+    }
+
+    [Fact]
+    public void ApplyDefaults_ExplicitRetrySettings_WinOverDefaults()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET",
+            Retries = 1,
+            UseExponentialBackoff = false,
+            MaxBodyBytes = 512
+        };
+
+        config.ApplyDefaults(new RestConfigDefaults
+        {
+            Retries = 5,
+            UseExponentialBackoff = true,
+            MaxBodyBytes = 4096
+        });
+
+        Assert.Equal(1, config.EffectiveRetries);
+        Assert.False(config.EffectiveUseExponentialBackoff);
+        Assert.Equal(512, config.EffectiveMaxBodyBytes);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(11)]
+    public void Validate_RetriesOutOfRange_Warns(int retries)
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET",
+            Retries = retries
+        };
+
+        Assert.Contains(config.Validate(), w => w.Contains("Retries debe estar entre"));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(60001)]
+    public void Validate_RetryDelayOutOfRange_Warns(int delayMs)
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET",
+            RetryDelayMilliseconds = delayMs
+        };
+
+        Assert.Contains(config.Validate(), w => w.Contains("RetryDelayMs debe estar entre"));
+    }
+
+    [Fact]
+    public void Validate_NegativeMaxBodyBytes_Warns()
+    {
+        var config = new RestRequestConfig
+        {
+            Url = "https://example.com",
+            Method = "GET",
+            MaxBodyBytes = -1
+        };
+
+        Assert.Contains(config.Validate(), w => w.Contains("MaxBodyBytes no puede ser negativo"));
+    }
 }

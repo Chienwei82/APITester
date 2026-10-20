@@ -20,6 +20,19 @@ public sealed class RequestWizard(IAnsiConsole console)
         _step = 0;
         var config = new RestRequestConfig();
 
+        ReadIdentity(config, cancellationToken);
+        ReadHeadersAndQuery(config, cancellationToken);
+        ReadBodyIfSupported(config, cancellationToken);
+        ReadRetryOptions(config, cancellationToken);
+        ReadOutput(config, cancellationToken);
+        ReadAdvancedIfRequested(config, cancellationToken);
+
+        ShowSummary(config);
+        return Tui.Confirm(console, "Ejecutar el request", true, cancellationToken) ? config : null;
+    }
+
+    private void ReadIdentity(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         Section("Nombre");
         config.Name = NullIfEmpty(Tui.AskTextOptional(console, "Nombre (Enter para omitir)", cancellationToken));
 
@@ -28,37 +41,50 @@ public sealed class RequestWizard(IAnsiConsole console)
 
         Section("URL");
         config.Url = Tui.AskText(console, "URL", cancellationToken, url => ConfigValidator.ValidateUrl(url));
+    }
 
+    private void ReadHeadersAndQuery(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         config.Headers = NonEmpty(ReadHeaders(cancellationToken));
         config.Query = NonEmpty(ReadQuery(cancellationToken));
+    }
 
+    private void ReadBodyIfSupported(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         if (HttpMethods.AllowsBody(config.Method))
         {
             config.Body = ReadBody(cancellationToken);
         }
+    }
 
+    private void ReadRetryOptions(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         Section("Timeout y reintentos");
         config.TimeoutInSeconds = Tui.AskInt(console, "Timeout en segundos (Enter = 30)", 30,
             ConfigValidator.ValidateTimeout, cancellationToken);
         config.Retries = Tui.AskInt(console, "Reintentos (Enter = 0)", 0,
-            retries => retries is < 0 or > 10 ? "Reintentos debe estar entre 0 y 10" : null,
-            cancellationToken);
+            ConfigValidator.ValidateRetries, cancellationToken);
+    }
 
+    private void ReadOutput(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         Section("Salida");
         var output = NullIfEmpty(Tui.AskTextOptional(console, "Archivo de salida (Enter = no guardar)", cancellationToken));
-        if (output is not null)
+        if (output is null)
         {
-            config.Output = output;
-            config.AppendOutput = Tui.Confirm(console, "Anadir al archivo en vez de sobrescribirlo", false, cancellationToken);
+            return;
         }
 
+        config.Output = output;
+        config.AppendOutput = Tui.Confirm(console, "Anadir al archivo en vez de sobrescribirlo", false, cancellationToken);
+    }
+
+    private void ReadAdvancedIfRequested(RestRequestConfig config, CancellationToken cancellationToken)
+    {
         if (Tui.Confirm(console, "Configuracion avanzada (delay, backoff, cuerpo maximo, certificado)", false, cancellationToken))
         {
             ReadAdvanced(config, cancellationToken);
         }
-
-        ShowSummary(config);
-        return Tui.Confirm(console, "Ejecutar el request", true, cancellationToken) ? config : null;
     }
 
     private Dictionary<string, string> ReadHeaders(CancellationToken cancellationToken)
@@ -151,13 +177,13 @@ public sealed class RequestWizard(IAnsiConsole console)
         Section("Configuracion avanzada");
 
         config.RetryDelayMilliseconds = Tui.AskInt(console, "Delay entre reintentos en ms (Enter = 1000)", 1000,
-            delay => delay is < 0 or > 60000 ? "El delay debe estar entre 0 y 60000 ms" : null, cancellationToken);
+            ConfigValidator.ValidateRetryDelay, cancellationToken);
 
         config.UseExponentialBackoff = Tui.Confirm(console, "Backoff exponencial",
-            config.UseExponentialBackoff, cancellationToken);
+            config.EffectiveUseExponentialBackoff, cancellationToken);
 
-        config.MaxBodyBytes = Tui.AskInt(console, "Limite de la respuesta en bytes (Enter = 4194304)",
-            4 * 1024 * 1024, max => max <= 0 ? "El limite debe ser mayor a 0" : null, cancellationToken);
+        config.MaxBodyBytes = Tui.AskLong(console, "Limite de la respuesta en bytes (Enter = 4194304)",
+            ConfigValidator.DefaultMaxBodyBytes, ConfigValidator.ValidateMaxBodyBytes, cancellationToken);
 
         var certPath = NullIfEmpty(Tui.AskTextOptional(console, "Ruta del certificado cliente (Enter = ninguno)", cancellationToken));
         if (certPath is null)

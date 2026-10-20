@@ -1,18 +1,29 @@
+using System.Net.Http.Headers;
+
 namespace APITester.Core.Services;
 
 public static class HeaderCollector
 {
+    /// <summary>
+    /// Aplana los headers de la respuesta en un unico diccionario; los valores
+    /// repetidos de un mismo header se unen con ", ".
+    /// </summary>
     public static Dictionary<string, string> CollectFrom(HttpResponseMessage response)
     {
-        var all = response.Headers
-            .SelectMany(h => h.Value.Select(v => (h.Key, v)))
-            .Concat(response.Content.Headers
-                .SelectMany(h => h.Value.Select(v => (h.Key, v))));
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Add(headers, response.Headers);
+        Add(headers, response.Content.Headers);
+        return headers;
 
-        return all
-            .GroupBy(e => e.Key)
-            .ToDictionary(
-                g => g.Key,
-                g => string.Join(", ", g.Select(e => e.v)));
+        static void Add(Dictionary<string, string> target, HttpHeaders source)
+        {
+            foreach (var (name, values) in source)
+            {
+                var joined = string.Join(", ", values);
+                target[name] = target.TryGetValue(name, out var existing)
+                    ? $"{existing}, {joined}"
+                    : joined;
+            }
+        }
     }
 }

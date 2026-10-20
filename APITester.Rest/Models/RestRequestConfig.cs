@@ -26,7 +26,7 @@ public class RestRequestConfig
     public int? RetryDelayMilliseconds { get; set; }
 
     [JsonPropertyName("retryExponentialBackoff")]
-    public bool UseExponentialBackoff { get; set; } = false;
+    public bool? UseExponentialBackoff { get; set; }
 
     [JsonPropertyName("retryOnStatusCodes")]
     public List<int>? RetryOnStatusCodes { get; set; }
@@ -43,6 +43,9 @@ public class RestRequestConfig
         TimeoutInSeconds ??= defaults.TimeoutInSeconds;
         Retries ??= defaults.Retries;
         RetryDelayMilliseconds ??= defaults.RetryDelayMilliseconds;
+        UseExponentialBackoff ??= defaults.UseExponentialBackoff;
+        RetryOnStatusCodes ??= defaults.RetryOnStatusCodes;
+        MaxBodyBytes ??= defaults.MaxBodyBytes;
 
         if (!string.IsNullOrEmpty(defaults.BaseUrl) && Url is not null && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             Url = defaults.BaseUrl.TrimEnd('/') + "/" + Url.TrimStart('/');
@@ -55,6 +58,18 @@ public class RestRequestConfig
 
         var timeoutError = ConfigValidator.ValidateTimeout(EffectiveTimeoutInSeconds);
         if (timeoutError is not null) yield return timeoutError;
+
+        var retriesError = ConfigValidator.ValidateRetries(EffectiveRetries);
+        if (retriesError is not null) yield return retriesError;
+
+        var retryDelayError = ConfigValidator.ValidateRetryDelay(EffectiveRetryDelayMilliseconds);
+        if (retryDelayError is not null) yield return retryDelayError;
+
+        if (MaxBodyBytes is { } maxBodyBytes)
+        {
+            var bodyLimitError = ConfigValidator.ValidateMaxBodyBytes(maxBodyBytes);
+            if (bodyLimitError is not null) yield return bodyLimitError;
+        }
 
         var certError = ConfigValidator.ValidateCert(Cert);
         if (certError is not null) yield return certError;
@@ -75,8 +90,11 @@ public class RestRequestConfig
     /// <summary>Efectivo delay entre reintentos, aplicando el default cuando no se especifico.</summary>
     public int EffectiveRetryDelayMilliseconds => RetryDelayMilliseconds ?? 1000;
 
+    /// <summary>Efectivo backoff exponencial, aplicando el default cuando no se especifico.</summary>
+    public bool EffectiveUseExponentialBackoff => UseExponentialBackoff ?? false;
+
     /// <summary>Limite de bytes a leer del body de la respuesta (default 4MB).</summary>
-    public long EffectiveMaxBodyBytes => MaxBodyBytes ?? 4 * 1024 * 1024;
+    public long EffectiveMaxBodyBytes => MaxBodyBytes ?? ConfigValidator.DefaultMaxBodyBytes;
 }
 
 public class RestConfigDefaults
@@ -93,6 +111,15 @@ public class RestConfigDefaults
 
     [JsonPropertyName("retryDelayMs")]
     public int? RetryDelayMilliseconds { get; set; }
+
+    [JsonPropertyName("retryExponentialBackoff")]
+    public bool? UseExponentialBackoff { get; set; }
+
+    [JsonPropertyName("retryOnStatusCodes")]
+    public List<int>? RetryOnStatusCodes { get; set; }
+
+    [JsonPropertyName("maxBodyBytes")]
+    public long? MaxBodyBytes { get; set; }
 }
 
 public class RestConfigFile
