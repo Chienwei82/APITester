@@ -116,6 +116,15 @@ jobs:
             echo "::warning::restore fallo (intento ${attempt}/3); reintentando en $((attempt * 10))s"
             sleep $((attempt * 10))
           done
+
+          echo "::group::Diagnostico del restore"
+          dotnet nuget list source || true
+          env | grep -iE '^(nuget|dotnet)' | sort || true
+          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 --verbosity diagnostic \
+            > "$RUNNER_TEMP/diag.log" 2>&1 || true
+          grep -inE 'error|NU[0-9]{4}|exception|vulnerab|audit|not found|http' "$RUNNER_TEMP/diag.log" | tail -40 || true
+          echo "::endgroup::"
+
           echo "::error::no se pudieron restaurar los paquetes NuGet"
           exit 1
 
@@ -182,6 +191,15 @@ jobs:
             echo "::warning::restore fallo (intento ${attempt}/3); reintentando en $((attempt * 10))s"
             sleep $((attempt * 10))
           done
+
+          echo "::group::Diagnostico del restore"
+          dotnet nuget list source || true
+          env | grep -iE '^(nuget|dotnet)' | sort || true
+          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime linux-x64 --verbosity diagnostic \
+            > "$RUNNER_TEMP/diag.log" 2>&1 || true
+          grep -inE 'error|NU[0-9]{4}|exception|vulnerab|audit|not found|http' "$RUNNER_TEMP/diag.log" | tail -40 || true
+          echo "::endgroup::"
+
           echo "::error::no se pudieron restaurar los paquetes NuGet"
           exit 1
 
