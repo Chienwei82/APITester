@@ -1,25 +1,94 @@
 name: Release
 
+# Cada PR genera un release (pre-release con tag `pr-<numero>`) y cada tag `v*`
+# genera un release definitivo. Assets en todos los casos:
+#   - Windows x64: zip con APITester.exe (self-contained, un solo archivo)
+#   - Linux x64:   AppImage
+#   - Codigo fuente: tar.gz generado con `git archive`
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     tags:
       - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag (e.g., v1.0.0)"
+        description: "Tag del release (ej. v1.0.0). Debe apuntar al commit actual."
         required: true
         type: string
 
 permissions:
   contents: write
 
-jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
 
+jobs:
+  # ---------------------------------------------------------------- tests
+  ci:
+    name: CI
+    uses: ./.github/workflows/dotnet.yml
+    permissions:
+      contents: read
+
+  # ------------------------------------------------------- version / tag
+  meta:
+    name: Calcular version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      title: ${{ steps.meta.outputs.title }}
     steps:
-      - name: Checkout code
+      - name: Calcular version
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT_NAME" in
+            pull_request)
+              version="pr-${PR_NUMBER}"
+              title="PR #${PR_NUMBER}: ${PR_TITLE}"
+              ;;
+            workflow_dispatch)
+              version="${INPUT_VERSION}"
+              title="${INPUT_VERSION}"
+              if ! printf '%s' "$version" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+                echo "::error::Version invalida '${version}'. Usa solo letras, numeros, '.', '_' o '-' (ej. v1.0.0)."
+                exit 1
+              fi
+              ;;
+            *)
+              version="${REF_NAME}"
+              title="${REF_NAME}"
+              ;;
+          esac
+
+          {
+            echo "version=${version}"
+            echo "tag=${version}"
+            echo "title=${title}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Release: ${title} (tag ${version})"
+
+  # ---------------------------------------------------------- windows x64
+  windows-x64:
+    name: Windows x64 (.exe)
+    runs-on: ubuntu-latest
+    needs: [ci, meta]
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup .NET
@@ -27,56 +96,217 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build --no-restore --configuration Release
-
-      - name: Test
-        run: dotnet test --no-build --configuration Release --verbosity normal
-
-      - name: Publish Linux x64
-        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/linux-x64
-
-      - name: Publish Windows x64
-        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/win-x64
-
-      - name: Publish macOS x64
-        run: dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r osx-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/osx-x64
-
-      - name: Package binaries
+      - name: Publicar win-x64
         run: |
-          cp rest-config.json ./publish/linux-x64/
-          cp rest-config.json ./publish/win-x64/
-          cp rest-config.json ./publish/osx-x64/
-          cp leeme.md ./publish/linux-x64/
-          cp leeme.md ./publish/win-x64/
-          cp leeme.md ./publish/osx-x64/
-          cd publish
-          zip -r ../APITester-linux-x64.zip linux-x64/
-          zip -r ../APITester-win-x64.zip win-x64/
-          zip -r ../APITester-osx-x64.zip osx-x64/
-          cd ..
+          dotnet publish APITester.Rest/APITester.Rest.csproj \
+            --configuration Release \
+            --runtime win-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:DebugType=none \
+            --output build/win-x64
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            APITester-linux-x64.zip
-            APITester-win-x64.zip
-            APITester-osx-x64.zip
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Empaquetar zip
+        run: |
+          set -euo pipefail
+          stage="build/APITester-${VERSION}-windows-x64"
+          mkdir -p "$stage"
+          mv build/win-x64/APITester.Rest.exe "$stage/APITester.exe"
+          cp APITester.Rest/rest-config.json "$stage/rest-config.json"
+          cp README.md LICENSE "$stage/"
+          python3 .github/scripts/make-zip.py "$stage" "build/APITester-${VERSION}-windows-x64.zip"
+          unzip -l "build/APITester-${VERSION}-windows-x64.zip"
 
-      - name: Upload artifacts (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: APITester-release-binaries
-          path: |
-            APITester-linux-x64.zip
-            APITester-win-x64.zip
-            APITester-osx-x64.zip
+          name: windows-x64
+          path: build/*.zip
+          if-no-files-found: error
+
+  # ------------------------------------------------------------ linux x64
+  linux-x64:
+    name: Linux x64 (AppImage)
+    runs-on: ubuntu-latest
+    needs: [ci, meta]
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publicar linux-x64
+        run: |
+          dotnet publish APITester.Rest/APITester.Rest.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:DebugType=none \
+            --output build/linux-x64
+
+      - name: Construir AppImage
+        run: bash .github/scripts/build-appimage.sh build/linux-x64 "build/APITester-${VERSION}-x86_64.AppImage"
+
+      - name: Smoke test del AppImage
+        run: |
+          set -euo pipefail
+          APPIMAGE_EXTRACT_AND_RUN=1 "./build/APITester-${VERSION}-x86_64.AppImage" --help > /dev/null
+          echo "El AppImage arranca correctamente."
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: build/*.AppImage
+          if-no-files-found: error
+
+  # --------------------------------------------------------------- release
+  release:
+    name: Publicar release
+    runs-on: ubuntu-latest
+    needs: [meta, windows-x64, linux-x64]
+    # Los PR de forks reciben un token de solo lectura: se empaqueta igual,
+    # pero no se puede crear el release.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Descargar binarios
+        uses: actions/download-artifact@v4
+        with:
+          path: build
+          merge-multiple: true
+
+      - name: Generar codigo fuente (tar.gz)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          git archive \
+            --format=tar.gz \
+            --prefix="APITester-${VERSION}/" \
+            --output="dist/APITester-${VERSION}-source.tar.gz" \
+            HEAD
+          tar -tzf "dist/APITester-${VERSION}-source.tar.gz" | head -n 5
+
+      - name: Verificar tag existente (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${TAG}" > /dev/null; then
+            tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+            head="$(git rev-parse HEAD)"
+            if [ "$tagged" != "$head" ]; then
+              echo "::error::El tag ${TAG} ya existe y apunta a ${tagged}, no a ${head}. Usa otro tag."
+              exit 1
+            fi
+          fi
+
+      - name: Eliminar release previo del PR
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "Reemplazando el release ${TAG} existente."
+            gh release delete "${TAG}" --cleanup-tag --yes
+          fi
+
+      - name: Crear o actualizar el tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "El tag ${TAG} ya existe: lo creo el push que disparo este workflow."
+            exit 0
+          fi
+
+          echo "Asegurando el tag ${TAG} en el commit ${GITHUB_SHA}"
+          git tag -f "${TAG}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${TAG}"
+
+      - name: Notas del release (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Release automático del PR #${PR_NUMBER}: ${PR_TITLE}"
+            echo
+            echo "- Autor: @${AUTHOR}"
+            echo "- Rama: ${HEAD_REF} → ${BASE_REF}"
+            echo "- Commit: ${SHA}"
+            echo "- PR: ${PR_URL}"
+            echo
+            echo "### Descargas"
+            echo
+            echo "- APITester-${VERSION}-windows-x64.zip: APITester.exe self-contained para Windows x64 (extraer y ejecutar; no requiere .NET instalado)."
+            echo "- APITester-${VERSION}-x86_64.AppImage: AppImage para Linux x86_64 (dar permiso de ejecución y correr)."
+            echo "- APITester-${VERSION}-source.tar.gz: código fuente completo de este PR."
+            echo
+            echo "Este release es una pre-release asociada al PR; se reemplaza en cada push nuevo a la rama."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Crear release del PR
+        if: github.event_name == 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: ${{ needs.meta.outputs.title }}
+          prerelease: true
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            build/APITester-*-windows-x64.zip
+            build/APITester-*-x86_64.AppImage
+            dist/APITester-*-source.tar.gz
+
+      - name: Crear release de version
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: ${{ needs.meta.outputs.title }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build/APITester-*-windows-x64.zip
+            build/APITester-*-x86_64.AppImage
+            dist/APITester-*-source.tar.gz
+
+      - name: Resumen
+        run: |
+          {
+            echo "### Release ${TAG}"
+            echo
+            echo "| Asset | Tamaño |"
+            echo "|---|---|"
+            for f in build/*.zip build/*.AppImage dist/*.tar.gz; do
+              [ -f "$f" ] || continue
+              printf '| %s | %s |\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
