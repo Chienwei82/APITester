@@ -118,15 +118,12 @@ jobs:
           done
 
           echo "::group::Diagnostico del restore"
-          dotnet nuget list source || true
-          echo "### A: restore sin RID (como el job de CI)"
-          dotnet restore APITester.Rest/APITester.Rest.csproj --verbosity minimal && echo "A OK" || echo "A FALLO"
-          echo "### B: restore con RID y NuGetAudit desactivado"
-          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 -p:NuGetAudit=false --verbosity minimal && echo "B OK" || echo "B FALLO"
-          echo "### C: restore con RID, salida diag (cola)"
-          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 --verbosity diagnostic \
-            > "$RUNNER_TEMP/diag.log" 2>&1 || true
-          tail -60 "$RUNNER_TEMP/diag.log"
+          echo "### D: restore del slnx (lo que hace el job de CI)"
+          dotnet restore APITester.slnx --verbosity minimal && echo "D OK" || echo "D FALLO"
+          echo "### E: restore del proyecto en un solo nodo (--disable-parallel)"
+          dotnet restore APITester.Rest/APITester.Rest.csproj --disable-parallel --verbosity normal 2>&1 | tail -40
+          echo "### F: restore del proyecto con -m:1"
+          dotnet restore APITester.Rest/APITester.Rest.csproj -maxcpucount:1 --verbosity minimal && echo "F OK" || echo "F FALLO"
           echo "::endgroup::"
 
           echo "::error::no se pudieron restaurar los paquetes NuGet"
