@@ -143,6 +143,7 @@ retryDelayMs 1000, backoff false, maxBodyBytes 4 MB.
 | `timeout` | 1–300 segundos |
 | `retries` | 0–10 |
 | `retryDelayMs` | 0–60000 |
+| `maxBodyBytes` | `>= 0` (`0` desactiva la lectura del body) |
 | `method` | Solo: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS |
 | `body` | Prohibido en GET, DELETE, HEAD, OPTIONS |
 | `cert.path` | El archivo debe existir en disco |
@@ -181,6 +182,10 @@ Sintaxis en **cualquier parte de `url`, `headers`, `query` y `body`**:
 Si la variable no existe y no hay default, el placeholder queda **sin reemplazar**
 (texto literal `${NOMBRE_VAR}`), lo que típicamente produce URL inválida. Los agentes
 deben preferir siempre la forma con default o garantizar que la variable exista.
+
+También se resuelven variables en `cert.path` y `cert.password` (por ejemplo
+`"password": "${CERT_PASSWORD}"`), que es la forma recomendada de no guardar la
+contraseña del certificado en el archivo.
 
 > Nota: el envío HTTP real viaja con los valores resueltos; lo que se redacta/persiste
 > es la **salida** (ver §8).

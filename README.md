@@ -37,7 +37,7 @@ La opcion **4** construye un request sin tocar el JSON: pregunta nombre, metodo,
 Para ejecutar sin menu, pasa argumentos (despues de `--`):
 
 ```
-dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [-h]
+dotnet run -- -c archivo.json [-o salida.json] [-v] [--format json|ndjson] [--strict] [--quiet] [--no-color] [--no-redact] [-h]
 ```
 
 Con `-c rest-config.json` (o sin `-c`, usando ese archivo) ejecuta los requests definidos ahi, guardando cada respuesta en su archivo `output`.
@@ -51,6 +51,7 @@ Con `-c rest-config.json` (o sin `-c`, usando ese archivo) ejecuta los requests 
 | `--strict` | Fallar si hay advertencias de validacion |
 | `--quiet` | Solo mostrar errores y el resumen final |
 | `--no-color` | Deshabilitar salida con colores |
+| `--no-redact` | Guarda los headers sensibles (`Authorization`, `Cookie`, `Set-Cookie`) sin enmascarar (por defecto se guardan como `***`) |
 | `-h`, `--help` | Muestra la ayuda |
 
 ---
@@ -144,7 +145,7 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 
 - `baseUrl`: las URLs relativas de los requests se resuelven contra esta base
 - `headers` / `query`: se aplican a los requests que no definan los propios
-- `timeout`, `retries`, `retryDelayMs`: se aplican solo a los requests que **no** definen un valor propio (así un valor explícito en el request siempre gana al default)
+- `timeout`, `retries`, `retryDelayMs`, `retryExponentialBackoff`, `retryOnStatusCodes`, `maxBodyBytes`: se aplican solo a los requests que **no** definen un valor propio (así un valor explícito en el request siempre gana al default)
 
 ### Campos disponibles
 
@@ -163,6 +164,7 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 | `retryDelayMs` | int | no | `1000` | Espera entre reintentos en milisegundos |
 | `retryExponentialBackoff` | bool | no | `false` | Usar backoff exponencial (con jitter) en los reintentos |
 | `retryOnStatusCodes` | lista de int | no | — | Reintentar tambien cuando la respuesta tenga estos status codes |
+| `maxBodyBytes` | long | no | `4194304` | Limite de bytes a leer del body de la respuesta; `0` desactiva la lectura |
 | `cert.path` | string | no | — | Ruta a un certificado cliente (.pfx) |
 | `cert.password` | string | no | — | Contrasena del certificado |
 
@@ -170,6 +172,9 @@ Puede ser un request unico, una lista de requests, o un objeto con `defaults` y 
 
 - `url`: debe ser una URL absoluta valida con http o https
 - `timeout`: entre 1 y 300 segundos
+- `retries`: entre 0 y 10
+- `retryDelayMs`: entre 0 y 60000
+- `maxBodyBytes`: no puede ser negativo
 - `method`: solo metodos HTTP estandar
 - `cert.path`: si se especifica, el archivo debe existir en disco
 - `body`: no se permite en metodos sin cuerpo (GET, DELETE, HEAD, OPTIONS)
@@ -226,7 +231,8 @@ El resultado se guarda en un archivo JSON con la siguiente estructura:
 
 - Si el request falla (error de red, timeout, etc.), el campo `Error` contiene el mensaje y `Response` es `null`.
 - Si la respuesta es JSON valido, `Body` se parsea como objeto JSON. El texto crudo siempre esta disponible en `BodyRaw`.
-- `RequestHeaders` contiene los headers que fueron enviados en el request (incluyendo los resueltos desde variables de entorno).
+- `RequestHeaders` contiene los headers que fueron enviados en el request (incluyendo los resueltos desde variables de entorno). Por defecto los headers sensibles se guardan como `***`; usa `--no-redact` para verlos completos.
+- Si la respuesta supera `maxBodyBytes`, `BodyRaw` queda truncado y se agrega `"Truncated": true` (en ese caso `Body` no se parsea).
 
 Los directorios de salida (por ejemplo `respuestas/`) se crean automaticamente si no existen.
 
@@ -262,7 +268,20 @@ Cuando un request falla por `HttpRequestException`, `TaskCanceledException` o `O
 }
 ```
 
-Si todos los intentos fallan, se devuelve el error del ultimo intento.
+Si todos los intentos fallan, el campo `Error` incluye la causa del ultimo intento (por ejemplo `Operacion fallo despues de 3 intentos: Connection refused`).
+
+---
+
+## Codigos de salida
+
+| Codigo | Significado |
+|---|---|
+| `0` | Todos los requests exitosos: hubo respuesta y el status es menor a 400 |
+| `1` | Error de argumentos, configuracion o escritura, o al menos un request fallido (error de red **o status 400+**) |
+| `130` | Cancelado por el usuario (Ctrl+C) |
+
+Un `404` o un `500` hacen que el proceso termine con codigo `1`: es lo que permite usar la
+herramienta en CI sin revisar los JSON a mano.
 
 ---
 
@@ -289,12 +308,50 @@ El diseno separa el nucleo (`Core`) del protocolo especifico (`Rest`), lo que pe
 
 ---
 
-## Scripts
+## Releases y CI
 
-Utilidades de mantenimiento del repo en [`scripts/`](scripts/README.md), por ejemplo la limpieza de ramas locales despues de mergear un PR:
+Cada **pull request** genera automáticamente un release *pre-release* con tag `pr-<numero>`, que se reemplaza en cada push nuevo a la rama. Cada **tag `v*`** genera el release definitivo (y también se puede lanzar a mano desde *Actions → Release → Run workflow* indicando el tag).
+
+Assets de cada release:
+
+| Plataforma | Archivo | Uso |
+|---|---|---|
+| Windows x64 | `APITester-<version>-windows-x64.zip` | Contiene `APITester.exe` self-contained (no requiere .NET instalado): descomprimir y ejecutar |
+| Linux x64 | `APITester-<version>-x86_64.AppImage` | `chmod +x APITester-<version>-x86_64.AppImage` y ejecutarlo (sin argumentos abre el menú interactivo) |
+| Código fuente | `APITester-<version>-source.tar.gz` | Snapshot del commit etiquetado (`git archive`) |
+
+Pipeline (`.github/workflows/release.yml`):
+
+1. **CI** — `dotnet restore` / `build` / `test` con el workflow reutilizable `.github/workflows/dotnet.yml` (147 tests). Si falla, no hay release.
+2. **Windows x64** — `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true` y zip con `APITester.exe`, `rest-config.json`, `README.md` y `LICENSE`.
+3. **Linux x64** — mismo publish para `linux-x64` y empaquetado como AppImage con `.github/scripts/build-appimage.sh` (icono en `assets/apitester.png`), más un smoke test del AppImage.
+4. **Release** — genera el `tar.gz` del código fuente y publica el release con los tres assets.
+
+Para publicar una versión definitiva:
 
 ```bash
-python3 scripts/git_cleanup.py --dry-run
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Los scripts de empaquetado (`.github/scripts/build-appimage.sh` y `.github/scripts/make-zip.py`) se pueden ejecutar localmente; por ejemplo:
+
+```bash
+dotnet publish APITester.Rest/APITester.Rest.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o build/linux-x64
+bash .github/scripts/build-appimage.sh build/linux-x64 build/APITester-local-x86_64.AppImage
+```
+
+> Si el release falla con un error de permisos (403), revisar *Settings → Actions → General → Workflow permissions*: el workflow necesita `contents: write` para crear el release y el tag.
+
+---
+
+## Scripts
+
+Utilidades de mantenimiento del repo en [`scripts/`](scripts/README.md) (Python 3.10+, sin dependencias), por ejemplo la limpieza de ramas locales despues de mergear un PR o la creacion de una rama nueva:
+
+```bash
+python3 scripts/git_cleanup.py --dry-run    # ver que borraria, sin tocar nada
+python3 scripts/git_new_branch.py -t fix -n 'login bug'
 ```
 
 ---
