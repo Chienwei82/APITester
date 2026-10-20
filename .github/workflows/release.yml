@@ -118,20 +118,21 @@ jobs:
           done
 
           echo "::group::Diagnostico del restore"
-          echo "### entorno"
-          env | grep -viE 'token|secret|password' | sort | head -40
-          echo "### nuget locals"
-          dotnet nuget locals all --list || true
-          echo "### global packages"
-          ls -ld "$HOME/.nuget/packages" 2>&1 || true
-          ls "$HOME/.nuget/packages" 2>&1 | head -10 || true
-          echo "### disco"
-          df -h "$HOME" | tail -2
-          echo "### G: restore con NUGET_PACKAGES limpio"
-          NUGET_PACKAGES="$RUNNER_TEMP/np" dotnet restore APITester.slnx --verbosity minimal && echo "G OK" || echo "G FALLO"
-          echo "### H: restore tras limpiar la cache http"
-          dotnet nuget locals http-cache --clear > /dev/null 2>&1 || true
-          dotnet restore APITester.slnx --verbosity minimal && echo "H OK" || echo "H FALLO"
+          echo "### logs de project.nuget.cache"
+          for f in APITester.Rest/obj/project.nuget.cache APITester.Core/obj/project.nuget.cache; do
+            echo "--- $f"
+            python3 - "$f" <<'PYCACHE' || true
+          import json, sys
+          try:
+              data = json.load(open(sys.argv[1]))
+          except Exception as exc:
+              print("no se pudo leer:", exc)
+              raise SystemExit(0)
+          print("success:", data.get("success"))
+          for entry in data.get("logs", []):
+              print("  ", entry.get("code"), "|", entry.get("message"))
+          PYCACHE
+          done
           echo "::endgroup::"
 
           echo "::error::no se pudieron restaurar los paquetes NuGet"
@@ -202,20 +203,21 @@ jobs:
           done
 
           echo "::group::Diagnostico del restore"
-          echo "### entorno"
-          env | grep -viE 'token|secret|password' | sort | head -40
-          echo "### nuget locals"
-          dotnet nuget locals all --list || true
-          echo "### global packages"
-          ls -ld "$HOME/.nuget/packages" 2>&1 || true
-          ls "$HOME/.nuget/packages" 2>&1 | head -10 || true
-          echo "### disco"
-          df -h "$HOME" | tail -2
-          echo "### G: restore con NUGET_PACKAGES limpio"
-          NUGET_PACKAGES="$RUNNER_TEMP/np" dotnet restore APITester.slnx --verbosity minimal && echo "G OK" || echo "G FALLO"
-          echo "### H: restore tras limpiar la cache http"
-          dotnet nuget locals http-cache --clear > /dev/null 2>&1 || true
-          dotnet restore APITester.slnx --verbosity minimal && echo "H OK" || echo "H FALLO"
+          echo "### logs de project.nuget.cache"
+          for f in APITester.Rest/obj/project.nuget.cache APITester.Core/obj/project.nuget.cache; do
+            echo "--- $f"
+            python3 - "$f" <<'PYCACHE' || true
+          import json, sys
+          try:
+              data = json.load(open(sys.argv[1]))
+          except Exception as exc:
+              print("no se pudo leer:", exc)
+              raise SystemExit(0)
+          print("success:", data.get("success"))
+          for entry in data.get("logs", []):
+              print("  ", entry.get("code"), "|", entry.get("message"))
+          PYCACHE
+          done
           echo "::endgroup::"
 
           echo "::error::no se pudieron restaurar los paquetes NuGet"
