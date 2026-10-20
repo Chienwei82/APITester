@@ -119,10 +119,14 @@ jobs:
 
           echo "::group::Diagnostico del restore"
           dotnet nuget list source || true
-          env | grep -iE '^(nuget|dotnet)' | sort || true
+          echo "### A: restore sin RID (como el job de CI)"
+          dotnet restore APITester.Rest/APITester.Rest.csproj --verbosity minimal && echo "A OK" || echo "A FALLO"
+          echo "### B: restore con RID y NuGetAudit desactivado"
+          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 -p:NuGetAudit=false --verbosity minimal && echo "B OK" || echo "B FALLO"
+          echo "### C: restore con RID, salida diag (cola)"
           dotnet restore APITester.Rest/APITester.Rest.csproj --runtime win-x64 --verbosity diagnostic \
             > "$RUNNER_TEMP/diag.log" 2>&1 || true
-          grep -inE 'error|NU[0-9]{4}|exception|vulnerab|audit|not found|http' "$RUNNER_TEMP/diag.log" | tail -40 || true
+          tail -60 "$RUNNER_TEMP/diag.log"
           echo "::endgroup::"
 
           echo "::error::no se pudieron restaurar los paquetes NuGet"
@@ -194,10 +198,14 @@ jobs:
 
           echo "::group::Diagnostico del restore"
           dotnet nuget list source || true
-          env | grep -iE '^(nuget|dotnet)' | sort || true
+          echo "### A: restore sin RID (como el job de CI)"
+          dotnet restore APITester.Rest/APITester.Rest.csproj --verbosity minimal && echo "A OK" || echo "A FALLO"
+          echo "### B: restore con RID y NuGetAudit desactivado"
+          dotnet restore APITester.Rest/APITester.Rest.csproj --runtime linux-x64 -p:NuGetAudit=false --verbosity minimal && echo "B OK" || echo "B FALLO"
+          echo "### C: restore con RID, salida diag (cola)"
           dotnet restore APITester.Rest/APITester.Rest.csproj --runtime linux-x64 --verbosity diagnostic \
             > "$RUNNER_TEMP/diag.log" 2>&1 || true
-          grep -inE 'error|NU[0-9]{4}|exception|vulnerab|audit|not found|http' "$RUNNER_TEMP/diag.log" | tail -40 || true
+          tail -60 "$RUNNER_TEMP/diag.log"
           echo "::endgroup::"
 
           echo "::error::no se pudieron restaurar los paquetes NuGet"
